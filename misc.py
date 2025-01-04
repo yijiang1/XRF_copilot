@@ -1,11 +1,11 @@
 import os
 import sys
 import csv
-from mpi4py import MPI
+#from mpi4py import MPI
 
-comm = MPI.COMM_WORLD
-n_ranks = comm.Get_size()
-rank = comm.Get_rank()
+#comm = MPI.COMM_WORLD
+#n_ranks = comm.Get_size()
+#rank = comm.Get_rank()
 
 
 def print_flush_root(this_rank, val, output_file='', root=0, output_folder='./', save_stdout=True, print_terminal=False):

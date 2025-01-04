@@ -1,12 +1,4 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Sat Nov  7 23:34:50 2020
-
-@author: panpanhuang
-"""
-
-from mpi4py import MPI
+#from mpi4py import MPI
 import datetime
 from numpy.random import default_rng
 import h5py
@@ -19,11 +11,11 @@ import os
 import sys
 from tqdm import tqdm
 from misc import print_flush_root
-from Atomic_number import AN
+#from Atomic_number import AN
 
-comm = MPI.COMM_WORLD
-n_ranks = comm.Get_size()
-rank = comm.Get_rank()
+# comm = MPI.COMM_WORLD
+# n_ranks = comm.Get_size()
+# rank = comm.Get_rank()
 
 # Note: xraylib uses keV 
 
