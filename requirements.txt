@@ -1,0 +1,4 @@
+git+https://github.com/xyin-anl/Nodeology.git
+xraylib
+h5py
+mendeleev
