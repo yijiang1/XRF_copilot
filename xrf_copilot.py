@@ -1,14 +1,11 @@
 from nodeology.workflow import Workflow
-from nodeology.state import State, StateBaseT
 from nodeology.node import as_node
 from langgraph.graph import END
-from nodeology.prebuilt import formatter
-from workflow import XRF_Copilot_State, survey
+from workflow import XRF_Copilot_State, survey, formatter
 from simulation import simulate_XRF_maps
-import json
 
 @as_node(sink="human_input")
-def user_input(user_name='user'):    
+def user_input(user_name):    
     return input(f"{user_name}: ")
  
 class XRFSim(Workflow):
@@ -41,26 +38,36 @@ workflow = XRFSim(
 #workflow.to_yaml("xrf_sim.yaml")
 #workflow.graph.get_graph().draw_mermaid_png(output_file_path="xrf_sim.png")
 
-questions = """- What's the path to the ground truth objects? (String for the full path to a npy file)
-- What elements do you want to simulate? (String for element names)
-- What's the beam energy and incident probe intensity? (Float for beam energy, Float for incident probe intensity)
+questions = """- What's the full path to the ground truth objects in npy format? (String for the full path to a npy file. Should end with .npy)
+- What elements do you want to simulate? (String)
+- What's the beam energy? (Float or int)
+- What's the incident probe intensity? (Float or int)
 - Do you want to include self-absorption in the simulation? (yes or no)
 - Do you want to include probe attenuation in the simulation? (yes or no)
-- What is the physical size of the volume in cm? (Float for the volume)
+- What is the physical size of the volume in cm? (Float or int for the volume)
+- What is the batch size for parallel calculation? (Int for the batch size)
 """
+
 params_desc = """| parameter name | parameter type | description |
 | :--- | :--- | :--- |
 | ground_truth_file | string | path to the ground truth objects |
 | probe_energy | float | beam energy |
 | incident_probe_intensity | float | incident probe intensity |
-| elements | string | types of elements for simulation |
-| model_self_absorption | boolean | true if self absorption is considered |
-| model_probe_attenuation | boolean | true if self probe attenuation is considered |"""
+| elements | a list of strings | a list of strings of elements name in abberated form (chemical symbols) |
+| model_self_absorption | boolean | true if self absorption is considered in the simulation |
+| model_probe_attenuation | boolean | true if probe attenuation is considered in the simulation |
+| sample_size_cm | float | physical size of the volume in cm |
+| batch_size | int | batch size for parallel calculation |
+"""
 
 data_path = "test_data"
  
 result = workflow.run(
-    {"questions": questions, "params_desc": params_desc, "agent_name": "Fluoro", "user_name": "Yi"}
+    {"questions": questions, 
+     "params_desc": params_desc, 
+     "agent_name": "Fluoro", 
+     "user_name": "Yi",
+     "debug": True}
 )
  
 #print(result["simulation_result"])

@@ -22,6 +22,9 @@ class XRF_Copilot_State(State):
     quality_history: List[str]
     params_questions: str
 
+    #workflow contro
+    debug: bool
+
 
 conversation_summarizer = Node(
     node_type="summarizer",
@@ -44,7 +47,8 @@ def conversation_summarizer_pre_process(state, client, **kwargs):
 
 
 def conversation_summarizer_post_process(state, client, **kwargs):
-    record_messages(state, [(state["agent_name"], state["conversation_summary"], "blue")])
+    if state["debug"]:
+        record_messages(state, [(state["agent_name"], state["conversation_summary"], "blue")])
     state["conversation"] = []
     return state
 
@@ -129,19 +133,26 @@ Output MUST be JSON ONLY, do not add explanation before or after the JSON.""",
 
 def formatter_pre_process(state, client, **kwargs):
     record_messages(
-        state, [(state["agent_name"], f"I will extract parameters from the source.", "green")]
+        state, [(state["agent_name"], f"I will summarize input parameters from our conversation.", "green")]
     )
     return state
 
 
 def formatter_post_process(state, client, **kwargs):
-    record_messages(
-        state,
-        [
-            (state["agent_name"], "Here are the current parameters:", "green"),
-            (state["agent_name"], state["params"], "blue"),
-        ],
-    )
+    
+    if state["debug"]:
+        params_dict = json.loads(state["params"])
+        record_messages(
+            state,
+            [
+                (state["agent_name"], "Here are the current parameters:", "blue"),
+            #(state["agent_name"], state["params"], "blue"),
+            #(state["agent_name"], json.dumps(state["params"], indent=4), "blue"),
+                (state["agent_name"], "\n".join([f"{key}: {value}" for key, value in params_dict.items()]), "blue"),
+            
+            ],
+        )
+    
     return state
 
 
