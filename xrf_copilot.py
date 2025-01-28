@@ -1,33 +1,4 @@
-from nodeology.workflow import Workflow
-from nodeology.node import as_node
-from langgraph.graph import END
-from workflow import XRF_Copilot_State, survey, formatter
-from simulation import simulate_XRF_maps
-
-@as_node(sink="human_input")
-def user_input(user_name):    
-    return input(f"{user_name}: ")
- 
-class XRFSim(Workflow):
-    def create_workflow(self):
-        self.add_node("params_collector", survey) 
-        self.add_node("user_input", user_input)
-        self.add_node("params_formatter", formatter, source="conversation_summary")
-        self.add_node("simulation", simulate_XRF_maps)
- 
-        self.add_conditional_flow(
-            "params_collector",
-            "end_conversation",
-            then="params_formatter",
-            otherwise="user_input",
-        )
-        self.add_flow("user_input", "params_collector")
-        self.add_flow("params_formatter", "simulation")
-        self.add_flow("simulation", END)
- 
-        self.set_entry("params_collector")
-        self.compile(auto_input_nodes=False)
- 
+from workflow import XRFSim, XRF_Copilot_State 
  
 workflow = XRFSim(
     llm_name="gpt-4o",
@@ -35,6 +6,7 @@ workflow = XRFSim(
     save_artifacts=True,
     state_defs=XRF_Copilot_State,
 )
+
 #workflow.to_yaml("xrf_sim.yaml")
 #workflow.graph.get_graph().draw_mermaid_png(output_file_path="xrf_sim.png")
 
@@ -45,6 +17,8 @@ questions = """- What's the full path to the ground truth objects in npy format?
 - Do you want to include self-absorption in the simulation? (yes or no)
 - Do you want to include probe attenuation in the simulation? (yes or no)
 - What is the physical size of the volume in cm? (Float or int for the volume)
+- What is the estimated diameter of the sensor in cm? (Float or int for the diameter)
+- What is the estimated spacing between the sample and the detector in cm? (Float or int for the spacing)
 - What is the batch size for parallel calculation? (Int for the batch size)
 """
 
@@ -57,11 +31,11 @@ params_desc = """| parameter name | parameter type | description |
 | model_self_absorption | boolean | true if self absorption is considered in the simulation |
 | model_probe_attenuation | boolean | true if probe attenuation is considered in the simulation |
 | sample_size_cm | float | physical size of the volume in cm |
+| det_size_cm | float | estimated diameter of the sensor in cm |
+| det_from_sample_cm | float | estimated spacing between the sample and the detector in cm |
 | batch_size | int | batch size for parallel calculation |
 """
 
-data_path = "test_data"
- 
 result = workflow.run(
     {"questions": questions, 
      "params_desc": params_desc, 
