@@ -1,11 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-@author: Yi Jiang
-Simulate 2D XRF projection from 3D elemental objects
-Based on Panpan's FL_signal_reprojection_fn.py script
-"""
-
 import os
 import sys
 import datetime
@@ -23,20 +15,32 @@ from misc import print_flush_root, create_summary
 from forward_model import PPM
 import warnings
 from mendeleev import element
+from nodeology.node import as_node
+import json
 
 warnings.filterwarnings("ignore")
 
-def simulate_XRF_maps(base_path, ground_truth_file, output_file_base,
-                      incident_probe_intensity, probe_energy, 
-                      model_probe_attenuation, model_self_absorption,
-                      element_lines_roi, 
-                      sample_size_cm, det_size_cm, det_from_sample_cm, det_ds_spacing_cm,
-                      batch_size,
-                      P_file='',
-                      overwrite_P=False,
-                      gpu_id=0):
+@as_node(sink="simulation_result")
+def simulate_XRF_maps(params):
+    params_dict = json.loads(params)
+    ground_truth_file = params_dict['ground_truth_file']
+    output_dir = os.path.dirname(ground_truth_file)
+    probe_energy = np.array(params_dict['probe_energy'])
+    incident_probe_intensity = params_dict['incident_probe_intensity']
+    model_probe_attenuation = params_dict['model_probe_attenuation']
+    model_self_absorption = params_dict['model_self_absorption']
+    elements = params_dict['elements']
+    sample_size_cm = params_dict['sample_size_cm']
+    det_size_cm = params_dict['det_size_cm']
+    det_from_sample_cm = params_dict['det_from_sample_cm']
+    det_ds_spacing_cm = params_dict['det_ds_spacing_cm']
+    batch_size = params_dict['batch_size']
+    # P_file = params_dict['P_file']
+    # gpu_id = params_dict['gpu_id']
 
-    params = locals()
+    overwrite_P = False
+    gpu_id = 0
+    
     if tc.cuda.is_available() and gpu_id >= 0:  
         dev = tc.device('cuda:{}'.format(gpu_id))
     else:  
@@ -44,7 +48,7 @@ def simulate_XRF_maps(base_path, ground_truth_file, output_file_base,
     print(f'Device: {dev}')
     ####----------------------------------------------------------------------------------####
     #### load true 3D objects ####
-    X = np.load(f'{base_path}/{ground_truth_file}')
+    X = np.load(ground_truth_file)
     print(f'Test objects size: {X.shape}')
     X = tc.from_numpy(X).float().to(dev) #cpu
 
@@ -65,29 +69,28 @@ def simulate_XRF_maps(base_path, ground_truth_file, output_file_base,
     minibatch_ls_0 = tc.arange(n_ranks).to(dev) #dev
     n_batch = (sample_height_n * sample_size_n) // (n_ranks * batch_size)
     print(f'Number of batches: {n_batch}')
-
+    
     ####----------------------------------------------------------------------------------####
     #### get physical constants for the input elements and energy #### 
 
-    # Figure out the number of elements in from element_lines_roi
-    element_names = np.unique(element_lines_roi[:, 0])
-    n_element = len(element_names)
+    print(f'Elements: {elements}')
+    n_element = len(elements)
+    print(f'n_element: {n_element}')
     # Get atomic number for each element
-    atomic_numbers = {name: element(name).atomic_number for name in element_names}
-    # Sort the list based on atomic numbers
-    atomic_numbers = dict(sorted(atomic_numbers.items(), key=lambda item: item[1]))
-    element_names = sorted(element_names, key=lambda name: atomic_numbers[name])
-    print(f'Atomic_numbers: {atomic_numbers}')   
-    sorted_indices = np.argsort([atomic_numbers[element] for element in element_lines_roi[:, 0]])
-    element_lines_roi = element_lines_roi[sorted_indices]
+    atomic_numbers = {name: element(name).atomic_number for name in elements}
+    print(f'Atomic_numbers: {atomic_numbers}')
+    element_lines_roi = np.array([[element, 'K'] for element in elements])
+    print(f'Element_lines_roi: {element_lines_roi}')
+    
     # Figure out the number of FL lines for each element
-    n_line_group_each_element = np.array([np.sum(element_lines_roi[:, 0] == name) for name in element_names])
-    print(n_line_group_each_element)
+    n_line_group_each_element = np.array([np.sum(element_lines_roi[:, 0] == name) for name in elements])
+    print(f'n_line_group_each_element: {n_line_group_each_element}')
     # Create a lookup table of the fluorescence lines of interests
     fl_all_lines_dic = prepare_fl_lines(element_lines_roi,                           
                                         n_line_group_each_element, probe_energy, 
                                         sample_size_n, sample_size_cm) #cpu
-    
+    print(f'fl_all_lines_dic done')
+
     detected_fl_unit_concentration = tc.as_tensor(fl_all_lines_dic["detected_fl_unit_concentration"]).float().to(dev)
 
     # Get the mass attenuation cross section for each XRF line (3rd row in Table 5.3.1) as a list ####
@@ -111,7 +114,7 @@ def simulate_XRF_maps(base_path, ground_truth_file, output_file_base,
     scaler_names = np.array(["place_holder", "us_dc", "ds_ic", "abs_ic"]).astype("S12")
 
     # Calculate the mass attenuation cross section of probe (2nd row in Table 5.3.1) as a list ####
-    probe_attCS_ls = tc.as_tensor(xlib_np.CS_Total(np.array(list(atomic_numbers.values())), probe_energy).flatten()).to(dev)
+    probe_attCS_ls = tc.as_tensor(xlib_np.CS_Total(np.array(list(atomic_numbers.values())), np.array([probe_energy])).flatten()).to(dev)
 
     #### det_solid_angle_ratio is used only for simulated dataset (use_std_calibation: False, manual_det_area: False, manual_det_coord: False)
     #### in which the incident probe intensity is not calibrated with the axo_std file.
@@ -137,12 +140,12 @@ def simulate_XRF_maps(base_path, ground_truth_file, output_file_base,
     #### except for the limited solid angle and self-absorption
     signal_attenuation_factor = 1.0
     #print(f'signal_attenuation_factor={signal_attenuation_factor}')
-
+    
     ####----------------------------------------------------------------------------------####
     #### get P array #### 
-    if P_file is None or P_file.strip() == "":  #use default file name
-        P_file = f'P_det_size{det_size_cm}_spacing_{det_size_cm}_dist{det_from_sample_cm}_sample_size{sample_size_cm}_nxy{sample_size_n}_nz{sample_height_n}'
-    P_save_path = os.path.join(base_path, P_file)
+    #if P_file is None or P_file.strip() == "":  #use default file name
+    P_file = f'P_det_size{det_size_cm}_spacing_{det_size_cm}_dist{det_from_sample_cm}_sample_size{sample_size_cm}_nxy{sample_size_n}_nz{sample_height_n}'
+    P_save_path = os.path.join(output_dir, P_file)
 
     #Check if the P array exists, if it doesn't exist, call the function to calculate the P array and store it as a .h5 file.
     if not os.path.isfile(P_save_path + ".h5") or overwrite_P:
@@ -150,7 +153,7 @@ def simulate_XRF_maps(base_path, ground_truth_file, output_file_base,
         intersecting_length_fl_detectorlet(n_ranks, rank,
                                            det_size_cm, det_from_sample_cm, det_ds_spacing_cm,
                                            sample_size_n, sample_size_cm, sample_height_n, 
-                                           base_path, P_file) #has to use CPU for this step
+                                           output_dir, P_file) #has to use CPU for this step
         print(f'Completed. P is saved at {P_save_path}.h5')
     else:
         print(f'Loading an existing intersecting length array P from {P_save_path}.h5')
@@ -160,13 +163,13 @@ def simulate_XRF_maps(base_path, ground_truth_file, output_file_base,
     ####----------------------------------------------------------------------------------####
     #### I/O #### 
     #stdout_options = {'root':0, 'output_folder': base_path, 'save_stdout': True, 'print_terminal': False}
-    stdout_options = {'root':0, 'output_folder': base_path, 'save_stdout': False, 'print_terminal': True}
+    stdout_options = {'root':0, 'output_folder': output_dir, 'save_stdout': False, 'print_terminal': True}
     timestr = str(datetime.datetime.today())     
     print_flush_root(0, val=f"time: {timestr}", output_file='', **stdout_options)
     
-    sim_XRF_file = f'{base_path}/{output_file_base}_xrf'
-    sim_XRT_file = f'{base_path}/{output_file_base}_xrt'
-    params_file_name = f'{output_file_base}_params'
+    sim_XRF_file = f'{output_dir}/sim_xrf'
+    sim_XRT_file = f'{output_dir}/sim_xrt'
+    params_file_name = f'sim_params'
 
     suffixes = []
     if model_probe_attenuation:
@@ -187,10 +190,10 @@ def simulate_XRF_maps(base_path, ground_truth_file, output_file_base,
         grp = d.create_group("exchange")
         data = grp.create_dataset("data", shape=(4, sample_height_n, sample_size_n), dtype="f4")
 
-    params['P_file'] = P_file
-    params['element_lines_roi'] = element_lines_roi
-    create_summary(base_path, params, fname=params_file_name)
-
+    #params['P_file'] = P_file
+    #params['element_lines_roi'] = element_lines_roi
+    #create_summary(base_path, params, fname=params_file_name)
+    
     ####----------------------------------------------------------------------------------####
     #### simulation ####
     start_time_total = datetime.datetime.now()  # Start time for the simulation
@@ -245,11 +248,16 @@ def simulate_XRF_maps(base_path, ground_truth_file, output_file_base,
     
     total_time = datetime.datetime.now() - start_time_total  # Calculate time taken for the whole simulation
     print(f"Total forward simulation time cost: {total_time}")
-    with h5py.File(sim_XRF_file, 'r+') as d:
-        d["exchange/data"][2, 0] = d["exchange/data"][1, 0] * d["exchange/data"][3, 0]
+
+    # with h5py.File(sim_XRF_file, 'r+') as d:
+    #     d["exchange/data"][2, 0] = d["exchange/data"][1, 0] * d["exchange/data"][3, 0]
 
     del lac
     tc.cuda.empty_cache()
 
     ## It's important to close the hdf5 file hadle in the end of the reconstruction.
     P_handle.close()       
+
+    print('simulation done')
+    return "Simulation result"
+    

@@ -11,7 +11,7 @@ import os
 import sys
 from tqdm import tqdm
 from misc import print_flush_root
-#from Atomic_number import AN
+from Atomic_number import AN
 
 # comm = MPI.COMM_WORLD
 # n_ranks = comm.Get_size()
@@ -333,7 +333,7 @@ def prepare_fl_lines(element_lines_roi, n_line_group_each_element, probe_energy,
 
     for i, element_line_roi in enumerate(element_lines_roi):
         fl_energy = xlib_np.LineEnergy(np.array([AN[element_line_roi[0]]]), fl[element_line_roi[1]]).flatten()
-        fl_cs = xlib_np.CS_FluorLine_Kissel_Cascade(np.array([AN[element_line_roi[0]]]), fl[element_line_roi[1]], probe_energy).flatten()
+        fl_cs = xlib_np.CS_FluorLine_Kissel_Cascade(np.array([AN[element_line_roi[0]]]), fl[element_line_roi[1]], np.array([probe_energy])).flatten() # np.array([probe_energy]) is required by xraylib
 
         if np.sum(fl_cs) != 0:
             fl_energy_group = np.average(fl_energy, weights=fl_cs) 
