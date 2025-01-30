@@ -1,4 +1,5 @@
-from nodeology.node import Node, record_messages
+from nodeology.node import Node
+from .utils import record_messages
 
 survey = Node(
     node_type="survey",
@@ -25,7 +26,7 @@ def survey_pre_process(state, client, **kwargs):
         state["begin_conversation"] = True
         state["end_conversation"] = False
         return state
-
+    
     state["conversation"].append({"role": "user", "content": state["human_input"]})
     return state
 
@@ -33,7 +34,7 @@ def survey_post_process(state, client, **kwargs):
     collector_response = state["collector_response"]
 
     if "COLLECT_COMPLETE" in collector_response:
-        record_messages(state, [(state["agent_name"], "Thank you for your answers!", "green")])
+        record_messages(state, [("assistant", f"{state['agent_nickname']}: Thank you for your answers!", "green")])
         state["conversation"].append(
             {"role": "assistant", "content": "Thank you for your answers!"}
         )
@@ -42,7 +43,7 @@ def survey_post_process(state, client, **kwargs):
         from .conversation_summarizer import conversation_summarizer
         return conversation_summarizer(state, client, **kwargs)
 
-    record_messages(state, [(state["agent_name"], collector_response, "green")])
+    record_messages(state, [("assistant", f"{state['agent_nickname']}: {collector_response}", "green")])
     state["conversation"].append({"role": "assistant", "content": collector_response})
     return state
 

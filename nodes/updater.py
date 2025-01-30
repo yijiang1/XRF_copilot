@@ -30,9 +30,9 @@ def updater_pre_process(state, client, **kwargs):
                     record_messages(
                         state,
                         [
-                            (state["agent_name"], "Here are the current parameters:", "green"),
+                            ("assistant", "Here are the current parameters:", "green"),
                             (
-                                state["agent_name"],
+                                "assistant",
                                 json.dumps(state["params"], indent=2),
                                 "blue",
                             ),
@@ -42,7 +42,7 @@ def updater_pre_process(state, client, **kwargs):
                     state,
                     [
                         (
-                            state["agent_name"],
+                            "assistant",
                             'Let me know if you want to make any more changes. If all looks good, please say "LGTM".',
                             "green",
                         )
@@ -52,7 +52,7 @@ def updater_pre_process(state, client, **kwargs):
                 state,
                 [
                     (
-                        state["agent_name"],
+                        "assistant",
                         'You can say "terminate pear" to terminate the workflow at any time.',
                         "yellow",
                     )
@@ -68,7 +68,7 @@ def updater_pre_process(state, client, **kwargs):
             for keyword in ["confirm", "quit", "exit", "bye", "lgtm", "terminate"]
         ):
             record_messages(
-                state, [(state["agent_name"], "Thank you for your feedback!", "green")]
+                state, [("assistant", "Thank you for your feedback!", "green")]
             )
             state["begin_conversation"] = False
             state["end_conversation"] = True
@@ -79,7 +79,7 @@ def updater_pre_process(state, client, **kwargs):
             state,
             [
                 (
-                    state["agent_name"],
+                    "assistant",
                     f"I will update the parameters according to {source_type}.",
                     "green",
                 )
@@ -91,10 +91,10 @@ def updater_post_process(state, client, **kwargs):
     record_messages(
         state,
         [
-            (state["agent_name"], "Here are the updated parameters:", "green"),
-            (state["agent_name"], json.dumps(state["params"], indent=2), "blue"),
+            ("assistant", "Here are the updated parameters:", "green"),
+            ("assistant", json.dumps(state["params"], indent=2), "blue"),
             (
-                state["agent_name"],
+                "assistant",
                 'Let me know if you want to make any more changes. If all looks good, please say "LGTM".',
                 "green",
             ),

@@ -9,9 +9,7 @@ class XRF_Copilot_State(State):
     conversation_summary: str
     questions: str
     collector_response: str
-    agent_name: str
-    user_name: str
-
+    
     # params formatter
     data_path: str
     params_desc: str
@@ -21,7 +19,9 @@ class XRF_Copilot_State(State):
     params_questions: str
 
     #workflow control
-    debug: bool
+    agent_nickname: str
+    user: str
+    verbose: bool
 
 class RecommendationState(State):
     recommendation: str

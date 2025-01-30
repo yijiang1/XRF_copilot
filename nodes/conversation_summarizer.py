@@ -1,4 +1,5 @@
-from nodeology.node import Node, record_messages
+from nodeology.node import Node
+from .utils import record_messages
 
 conversation_summarizer = Node(
     node_type="summarizer",
@@ -14,13 +15,13 @@ Output MUST be bullet points ONLY, do not add explanation before or after.""",
 
 def conversation_summarizer_pre_process(state, client, **kwargs):
     record_messages(
-        state, [(state["agent_name"], "I will summarize the previous conversation.", "green")]
+        state, [("assistant", f"{state['agent_nickname']}: I will summarize our conversation.", "green")]
     )
     return state
 
 def conversation_summarizer_post_process(state, client, **kwargs):
-    if state["debug"]:
-        record_messages(state, [(state["agent_name"], state["conversation_summary"], "blue")])
+    if state["verbose"]:
+        record_messages(state, [("assistant", f"{state['conversation_summary']}", "blue")])
     state["conversation"] = []
     return state
 
