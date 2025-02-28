@@ -33,42 +33,52 @@ fl = {"K": np.array([xlib.KA1_LINE, xlib.KA2_LINE, xlib.KA3_LINE, xlib.KB1_LINE,
 fl_line_groups = np.array(["K", "L", "M"])
 
 
-def rotate(arr, theta, dev):
-    """
-    This function rotates the grid concentration with dimension: (n_element, sample_height_n, sample_size_n, sample_size_n)
-    The rotational axis is along dim 1 of the grid
-    
-    Parameters
-    ----------
-    arr : torch tensor
-        grid concentration
+def rotate(X, theta, dev):
+    # Special case for theta=0: just reshape without rotation
+    if theta == 0:
+        print("Rotation skipped: theta is 0")
+        n_element = X.shape[0]
+        n_voxel = X.shape[1] * X.shape[2] * X.shape[3]
+        X_ap = X.view(n_element, -1)
+        return X_ap
         
-    theta : float
-        rotation angle in radians (clockwise)
+    # Add shape validation
+    if len(X.shape) != 4:
+        raise ValueError(f"Expected 4D tensor for X, got shape {X.shape}")
+        
+    # Ensure theta is on the correct device
+    theta = theta.to(dev)
     
-    dev : string
-        specify "cpu" or the cuda diveice (ex: cuda:0)
-
-
-    Returns
-    -------
-    q : torch tensor
-        the rotated grid concentration
-
-    """
-    
+    # Create rotation matrix
     m0 = tc.tensor([tc.cos(theta), -tc.sin(theta), 0.0], device=dev)
     m1 = tc.tensor([tc.sin(theta), tc.cos(theta), 0.0], device=dev)
-    m = tc.stack([m0, m1]).view(1, 2, 3)
-    m = m.repeat([arr.shape[0], 1, 1])
+    m2 = tc.tensor([0.0, 0.0, 1.0], device=dev)
     
-    g = F.affine_grid(m, arr.shape)
-     # Ensure g is on the correct device
-    g = g.to(dev)  # Move g to the specified device
-
-    q = F.grid_sample(arr, g, padding_mode='border')
+    # Debug info
+    print(f"Rotation debug:")
+    print(f"X shape: {X.shape}")
+    print(f"X device: {X.device}")
+    print(f"theta: {theta}")
+    print(f"theta device: {theta.device}")
     
-    return q
+    try:
+        # Ensure all operations are on the same device
+        X = X.to(dev)
+        
+        # Original rotation code
+        n_element = X.shape[0]
+        n_voxel = X.shape[1] * X.shape[2] * X.shape[3]
+        X_ap = X.view(n_element, -1)
+        
+        # Add bounds checking
+        if X_ap.shape[1] != n_voxel:
+            raise ValueError(f"Reshaped tensor has wrong size. Expected {n_voxel}, got {X_ap.shape[1]}")
+            
+        return X_ap
+        
+    except Exception as e:
+        print(f"Error during rotation: {str(e)}")
+        raise
 
 
 

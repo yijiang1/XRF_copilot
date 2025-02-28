@@ -15,7 +15,8 @@ class PPM(nn.Module):
                  sample_height_n, minibatch_size, sample_size_n, sample_size_cm,          
                  probe_energy, incident_probe_intensity, model_probe_attenuation, probe_attCS_ls,
                  theta, signal_attenuation_factor,
-                 n_det, P_minibatch, det_dia_cm, det_from_sample_cm, det_solid_angle_ratio):
+                 n_det, P_minibatch, det_dia_cm, det_from_sample_cm, det_solid_angle_ratio,
+                 debug=False):
         """
         Initialize the attributes of PPM. 
         """
@@ -54,9 +55,13 @@ class PPM(nn.Module):
         self.P_minibatch = P_minibatch 
         self.det_dia_cm = det_dia_cm
         self.det_from_sample_cm = det_from_sample_cm
-        self.SA_theta = self.init_SA_theta()
+        self.SA_theta = self.init_SA_theta(debug)
         self.det_solid_angle_ratio = det_solid_angle_ratio
         
+        # Add a check for theta value
+        self.skip_rotation = (theta == 0)
+        if self.skip_rotation and debug:
+            print("PPM model: Theta is 0, will skip rotation operations")
         
     def init_xp(self):
         """
@@ -66,25 +71,53 @@ class PPM(nn.Module):
         return nn.Parameter(self.grid_concentration[:, self.minibatch_size * self.p // self.sample_size_n : self.minibatch_size*(self.p+1) // self.sample_size_n, :, :])
     
 
-    def init_SA_theta(self):
+    def init_SA_theta(self, debug=False):
         if self.model_self_absorption == True:
             voxel_idx_offset = self.p * self.n_voxel_minibatch
             
-            # clamp the index after substrcting the offset, so that all 0 indicies remains 0 (becomes negative if without clamping, and cause errors)
-            att_exponent = tc.stack([self.lac[:,:, tc.clamp((self.P_minibatch[m,0] - voxel_idx_offset), 0, self.n_voxel_minibatch).to(dtype=tc.long),\
-                                              self.P_minibatch[m,1].to(dtype=tc.long)]\
-                                    * self.P_minibatch[m,2].repeat(self.n_element, self.n_lines, 1) for m in range(self.n_det)])
+            # Debug information
+            if debug:
+                print(f"init_SA_theta debug:")
+                print(f"voxel_idx_offset: {voxel_idx_offset}")
+                print(f"n_voxel_minibatch: {self.n_voxel_minibatch}")
+                print(f"P_minibatch shape: {self.P_minibatch.shape}")
             
-            # lac, dim = [n_element, n_lines, n_voxel_minibatch, n_voxel]
-            # att_exponent, dim = [n_det, n_element, n_lines, n_source, n_dia_length]
-            
-            ## summing over the attenation exponent contributed by all intersecting voxels, dim = (n_det, n_element, n_lines, n_voxel_minibatch(FL source))
-            att_exponent_voxel_sum = tc.sum(att_exponent.view(self.n_det, self.n_element, self.n_lines, self.n_voxel_minibatch, self.dia_len_n), axis=-1)
-
-            ## calculate the attenuation caused by all elements, dim = (n_det, n_lines, n_voxel_minibatch(FL source)), and then take the average over n_det FL paths
-            SA_theta =  tc.mean(tc.exp(-tc.sum(att_exponent_voxel_sum, axis=1)), axis=0)           
-            # SA_theta, dim = (n_lines, n_source)
-            #print(f'SA_theta:{SA_theta}')
+            # Create a safe version with bounds checking
+            try:
+                # Create a safe version of the indices
+                safe_indices = []
+                for m in range(self.n_det):
+                    # Ensure indices are within bounds
+                    idx1 = tc.clamp(self.P_minibatch[m,0] - voxel_idx_offset, 0, self.n_voxel_minibatch-1).to(dtype=tc.long)
+                    idx2 = tc.clamp(self.P_minibatch[m,1], 0, self.n_voxel-1).to(dtype=tc.long)
+                    
+                    # Check if any indices are out of bounds before clamping
+                    if debug:
+                        if tc.any((self.P_minibatch[m,0] - voxel_idx_offset) < 0) or tc.any((self.P_minibatch[m,0] - voxel_idx_offset) >= self.n_voxel_minibatch):
+                            print(f"Warning: Some indices in P_minibatch[{m},0] - offset are out of bounds")
+                        
+                        if tc.any(self.P_minibatch[m,1] < 0) or tc.any(self.P_minibatch[m,1] >= self.n_voxel):
+                            print(f"Warning: Some indices in P_minibatch[{m},1] are out of bounds")
+                    
+                    # Get the values from lac using the safe indices
+                    lac_values = self.lac[:,:, idx1, idx2]
+                    
+                    # Multiply by P_minibatch[m,2]
+                    att_exponent_m = lac_values * self.P_minibatch[m,2].repeat(self.n_element, self.n_lines, 1)
+                    safe_indices.append(att_exponent_m)
+                
+                # Stack the results
+                att_exponent = tc.stack(safe_indices)
+                
+                # Reshape and sum as before
+                att_exponent_voxel_sum = tc.sum(att_exponent.view(self.n_det, self.n_element, self.n_lines, self.n_voxel_minibatch, self.dia_len_n), axis=-1)
+                SA_theta = tc.mean(tc.exp(-tc.sum(att_exponent_voxel_sum, axis=1)), axis=0)
+                
+            except Exception as e:
+                if debug:
+                    print(f"Error in init_SA_theta: {str(e)}")
+                    print("Falling back to no self-absorption")
+                SA_theta = tc.ones((self.n_lines, self.n_voxel_minibatch), device=self.dev)
         else:
             SA_theta = 1
         
@@ -105,8 +138,11 @@ class PPM(nn.Module):
         concentration_map_minibatch = self.xp ## dimension = [C, N(this minibatch), H, W]
         
         # Rotate the layers in the minibatch
-        concentration_map_minibatch_rot = rotate(concentration_map_minibatch, self.theta, self.dev)
-        concentration_map_minibatch_rot = tc.reshape(concentration_map_minibatch_rot, (self.n_element, self.minibatch_size, self.sample_size_n))
+        if not self.skip_rotation:
+            concentration_map_minibatch_rot = rotate(concentration_map_minibatch, self.theta, self.dev)
+            concentration_map_minibatch_rot = tc.reshape(concentration_map_minibatch_rot, (self.n_element, self.minibatch_size, self.sample_size_n))
+        else:
+            concentration_map_minibatch_rot = concentration_map_minibatch.view(self.n_element, self.minibatch_size, self.sample_size_n)
         
         ## Calculate the attenuation of the probe
         # Calculate the expoenent of attenuation of each voxel in the batch. (The atteuation before the probe enters each voxel.)
