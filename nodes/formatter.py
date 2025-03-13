@@ -30,7 +30,7 @@ def formatter_post_process(state, client, **kwargs):
         record_messages(
             state,
             [
-                ("assistant", f"{state["agent_nickname"]}: Here are the current parameters:", "blue"),
+                ("assistant", f"{state['agent_nickname']}: Here are the current parameters:", "blue"),
                 ("assistant", "\n".join([f"{key}: {value}" for key, value in params_dict.items()]), "blue"),
             ],
         )

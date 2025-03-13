@@ -5,6 +5,7 @@ from nodes import survey, formatter, XRF_Copilot_State
 from simulation import simulate_XRF_maps
 from typing import Dict, Optional
 from nodeology.log import logger, log_print_color
+from anl_client import Argo_Client
 
 @as_node(sink="human_input")
 def user_input(user):
@@ -20,7 +21,7 @@ class XRFSim(Workflow):
 
         super().__init__(
             name="XRF_sim",
-            llm_name=llm,
+            llm_name=Argo_Client(self.llm),
             vlm_name="gpt-4o",
             save_artifacts=True,
             state_defs=XRF_Copilot_State,
@@ -60,7 +61,7 @@ class XRFSim(Workflow):
             "params_desc": params_desc, 
             "agent_nickname": self.agent_nickname, 
             "user": self.user,
-            "verbose": self.verbose
+            "verbose": self.verbose,
             })
 
     def create_workflow(self):

@@ -1,5 +1,6 @@
 git+https://github.com/xyin-anl/Nodeology.git
 xraylib
+torch
 h5py
-mendeleev
 tifffile
+jsonschema

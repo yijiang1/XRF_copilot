@@ -4,7 +4,7 @@ from .utils import record_messages
 conversation_summarizer = Node(
     node_type="summarizer",
     prompt_template="""# Instructions:
-Summarize the previous conversation and output a summary of ONLY user responses in bullet points.
+Summarize the previous conversation and output a summary of key points in bullet points.
 Each bullet point should be a complete sentence and contain only one key point.
 Do not add new information. Do not make up information. Do not change the order of information.
 For numbers, use the exact values from the conversation. Do not make up numbers.

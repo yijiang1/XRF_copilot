@@ -14,15 +14,29 @@ from util import rotate, prepare_fl_lines, intersecting_length_fl_detectorlet
 from misc import print_flush_root, create_summary
 from forward_model import PPM
 import warnings
-from mendeleev import element
 from nodeology.node import as_node
 import json
 from tqdm import tqdm
 import tifffile
-
 warnings.filterwarnings("ignore")
 
-#@as_node(sink="simulation_result")
+# Add atomic numbers dictionary to replace mendeleev
+ATOMIC_NUMBERS = {
+    'H': 1, 'He': 2, 'Li': 3, 'Be': 4, 'B': 5, 'C': 6, 'N': 7, 'O': 8, 'F': 9,
+    'Ne': 10, 'Na': 11, 'Mg': 12, 'Al': 13, 'Si': 14, 'P': 15, 'S': 16, 'Cl': 17,
+    'Ar': 18, 'K': 19, 'Ca': 20, 'Sc': 21, 'Ti': 22, 'V': 23, 'Cr': 24, 'Mn': 25,
+    'Fe': 26, 'Co': 27, 'Ni': 28, 'Cu': 29, 'Zn': 30, 'Ga': 31, 'Ge': 32, 'As': 33,
+    'Se': 34, 'Br': 35, 'Kr': 36, 'Rb': 37, 'Sr': 38, 'Y': 39, 'Zr': 40, 'Nb': 41,
+    'Mo': 42, 'Tc': 43, 'Ru': 44, 'Rh': 45, 'Pd': 46, 'Ag': 47, 'Cd': 48, 'In': 49,
+    'Sn': 50, 'Sb': 51, 'Te': 52, 'I': 53, 'Xe': 54, 'Cs': 55, 'Ba': 56, 'La': 57,
+    'Ce': 58, 'Pr': 59, 'Nd': 60, 'Pm': 61, 'Sm': 62, 'Eu': 63, 'Gd': 64, 'Tb': 65,
+    'Dy': 66, 'Ho': 67, 'Er': 68, 'Tm': 69, 'Yb': 70, 'Lu': 71, 'Hf': 72, 'Ta': 73,
+    'W': 74, 'Re': 75, 'Os': 76, 'Ir': 77, 'Pt': 78, 'Au': 79, 'Hg': 80, 'Tl': 81,
+    'Pb': 82, 'Bi': 83, 'Po': 84, 'At': 85, 'Rn': 86, 'Fr': 87, 'Ra': 88, 'Ac': 89,
+    'Th': 90, 'Pa': 91, 'U': 92
+}
+
+@as_node(sink="simulation_result")
 def simulate_XRF_maps(params):
     params_dict = json.loads(params)
     ground_truth_file = params_dict['ground_truth_file']
@@ -83,8 +97,8 @@ def simulate_XRF_maps(params):
     n_element = len(elements)
     if debug:
         print(f'n_element: {n_element}')
-    # Get atomic number for each element
-    atomic_numbers = {name: element(name).atomic_number for name in elements}
+    # Replace mendeleev with our dictionary
+    atomic_numbers = {name: ATOMIC_NUMBERS[name] for name in elements}
     if debug:
         print(f'Atomic_numbers: {atomic_numbers}')
     element_lines_roi = np.array([[element, 'K'] for element in elements])
@@ -196,9 +210,9 @@ def simulate_XRF_maps(params):
         suffix += '_sa'
 
     # Construct output file names with the updated suffix
-    sim_XRF_file = f'{output_dir}/sim_xrf_{suffix}.h5'
-    sim_XRT_file = f'{output_dir}/sim_xrt_{suffix}.h5'
-    params_file_name = f'sim_params_{suffix}.txt'
+    sim_XRF_file = f'{output_dir}/sim_xrf_E{probe_energy}_{suffix}.h5'
+    sim_XRT_file = f'{output_dir}/sim_xrt_E{probe_energy}_{suffix}.h5'
+    params_file_name = f'sim_params_E{probe_energy}_{suffix}.txt'
 
     # initialize h5 files for saving simulated signals
     with h5py.File(sim_XRF_file, 'w') as d:
@@ -392,19 +406,19 @@ def simulate_XRF_maps(params):
     ## It's important to close the hdf5 file hadle in the end of the reconstruction.
     P_handle.close()
 
-    # save xrf and xrt data to tiff images
+    # Save xrf and xrt data as TIFF images
     XRF_data_handle = h5py.File(sim_XRF_file, 'r')
     xrf_data = XRF_data_handle['exchange/data'][:]
     XRF_data_handle.close() 
 
     for i in range(n_element):
-        tifffile.imwrite(f'{output_dir}/sim_xrf_{suffix}_{elements[i]}.tif', xrf_data[i])
+        tifffile.imwrite(f'{output_dir}/sim_xrf_E{probe_energy}_{suffix}_{elements[i]}.tif', xrf_data[i])
 
     XRT_data_handle = h5py.File(sim_XRT_file, 'r')
     xrt_data = XRT_data_handle['exchange/data'][:]
     XRT_data_handle.close() 
 
-    tifffile.imwrite(f'{output_dir}/sim_xrt_{suffix}.tif', xrt_data[-1])
+    tifffile.imwrite(f'{output_dir}/sim_xrt_E{probe_energy}_{suffix}.tif', xrt_data[-1])
 
     if debug:
         print('simulation done')
