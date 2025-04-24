@@ -1,5 +1,5 @@
 import json
-from nodeology.node import Node, record_messages
+from nodeology.node import Node
 
 updater = Node(
     node_type="updater",

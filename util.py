@@ -12,6 +12,8 @@ import sys
 from tqdm import tqdm
 from misc import print_flush_root
 from Atomic_number import AN
+from scipy.spatial.transform import Rotation
+import math
 
 # comm = MPI.COMM_WORLD
 # n_ranks = comm.Get_size()
@@ -32,6 +34,112 @@ fl = {"K": np.array([xlib.KA1_LINE, xlib.KA2_LINE, xlib.KA3_LINE, xlib.KB1_LINE,
 
 fl_line_groups = np.array(["K", "L", "M"])
 
+# Add atomic numbers dictionary to replace mendeleev
+ATOMIC_NUMBERS = {
+    'H': 1, 'He': 2, 'Li': 3, 'Be': 4, 'B': 5, 'C': 6, 'N': 7, 'O': 8, 'F': 9,
+    'Ne': 10, 'Na': 11, 'Mg': 12, 'Al': 13, 'Si': 14, 'P': 15, 'S': 16, 'Cl': 17,
+    'Ar': 18, 'K': 19, 'Ca': 20, 'Sc': 21, 'Ti': 22, 'V': 23, 'Cr': 24, 'Mn': 25,
+    'Fe': 26, 'Co': 27, 'Ni': 28, 'Cu': 29, 'Zn': 30, 'Ga': 31, 'Ge': 32, 'As': 33,
+    'Se': 34, 'Br': 35, 'Kr': 36, 'Rb': 37, 'Sr': 38, 'Y': 39, 'Zr': 40, 'Nb': 41,
+    'Mo': 42, 'Tc': 43, 'Ru': 44, 'Rh': 45, 'Pd': 46, 'Ag': 47, 'Cd': 48, 'In': 49,
+    'Sn': 50, 'Sb': 51, 'Te': 52, 'I': 53, 'Xe': 54, 'Cs': 55, 'Ba': 56, 'La': 57,
+    'Ce': 58, 'Pr': 59, 'Nd': 60, 'Pm': 61, 'Sm': 62, 'Eu': 63, 'Gd': 64, 'Tb': 65,
+    'Dy': 66, 'Ho': 67, 'Er': 68, 'Tm': 69, 'Yb': 70, 'Lu': 71, 'Hf': 72, 'Ta': 73,
+    'W': 74, 'Re': 75, 'Os': 76, 'Ir': 77, 'Pt': 78, 'Au': 79, 'Hg': 80, 'Tl': 81,
+    'Pb': 82, 'Bi': 83, 'Po': 84, 'At': 85, 'Rn': 86, 'Fr': 87, 'Ra': 88, 'Ac': 89,
+    'Th': 90, 'Pa': 91, 'U': 92
+}
+
+def rotate_3d(X, angles, dev, use_degrees=True):
+    """
+    Rotate a 3D object by specified angles around each axis.
+    
+    Args:
+        X: Input tensor with shape [n_element, n_x, n_y, n_z]
+        angles: List/tensor of rotation angles [theta_x, theta_y, theta_z] in degrees by default
+        dev: Device to perform computations on
+        use_degrees: If True, input angles are in degrees, otherwise in radians
+        
+    Returns:
+        Rotated tensor with the same shape as input
+    """
+    import torch as tc
+    from scipy.spatial.transform import Rotation
+    import numpy as np
+    
+    # Convert angles to numpy if they're tensors
+    if isinstance(angles, tc.Tensor):
+        angles_np = angles.cpu().numpy()
+    else:
+        angles_np = np.array(angles)
+    
+    # Print input angles for debugging
+    print(f"Input rotation angles ({'degrees' if use_degrees else 'radians'}): {angles_np}")
+    
+    # Extract dimensions
+    n_element, n_x, n_y, n_z = X.shape
+    
+    # Create meshgrids for the original coordinates
+    x = np.linspace(-1, 1, n_x)
+    y = np.linspace(-1, 1, n_y)
+    z = np.linspace(-1, 1, n_z)
+    X_grid, Y_grid, Z_grid = np.meshgrid(x, y, z, indexing='ij')
+    
+    # Stack coordinates and reshape
+    coords = np.stack([X_grid.flatten(), Y_grid.flatten(), Z_grid.flatten()], axis=1)
+    
+    # Create rotation matrix using scipy
+    if use_degrees:
+        # Using scipy's Rotation class for reliable 3D rotations
+        r = Rotation.from_euler('xyz', angles_np, degrees=True)
+    else:
+        r = Rotation.from_euler('xyz', angles_np, degrees=False)
+    
+    # Apply rotation to coordinates
+    rotated_coords = r.apply(coords)
+    
+    # Reshape rotated coordinates back to grid
+    X_rot = rotated_coords[:, 0].reshape(n_x, n_y, n_z)
+    Y_rot = rotated_coords[:, 1].reshape(n_x, n_y, n_z)
+    Z_rot = rotated_coords[:, 2].reshape(n_x, n_y, n_z)
+    
+    # Convert to grid coordinates for PyTorch's grid_sample [-1, 1]
+    # No need to convert to indices, grid_sample expects normalized coordinates
+    X_grid_sample = X_rot  # Already in [-1, 1]
+    Y_grid_sample = Y_rot  # Already in [-1, 1]
+    Z_grid_sample = Z_rot  # Already in [-1, 1]
+    
+    # Create tensors for the rotated coordinates
+    X_grid_t = tc.tensor(X_grid_sample, device=dev, dtype=tc.float32)
+    Y_grid_t = tc.tensor(Y_grid_sample, device=dev, dtype=tc.float32)
+    Z_grid_t = tc.tensor(Z_grid_sample, device=dev, dtype=tc.float32)
+    
+    # Create result tensor
+    rotated_X = tc.zeros_like(X)
+    
+    # Process each element separately
+    for e in range(n_element):
+        # Grid needs to be [N, D_out, H_out, W_out, 3]
+        # For 3D data: [batch_size, depth, height, width, 3]
+        grid = tc.stack([
+            Z_grid_t,  # Depth (z)
+            X_grid_t,  # Width (x)
+            Y_grid_t   # Height (y)
+        ], dim=-1).unsqueeze(0)  # Shape becomes [1, n_x, n_y, n_z, 3]
+        
+        # Reshape input for grid_sample [N, C, D_in, H_in, W_in]
+        # For 3D data: [batch_size, channels, depth, height, width]
+        input_vol = X[e].unsqueeze(0).unsqueeze(0)  # Shape becomes [1, 1, n_x, n_y, n_z]
+        
+        # Apply grid_sample for interpolation
+        rotated_vol = tc.nn.functional.grid_sample(
+            input_vol, grid, mode='bilinear', 
+            padding_mode='zeros', align_corners=True
+        ).squeeze(0).squeeze(0)
+        
+        rotated_X[e] = rotated_vol
+    
+    return rotated_X
 
 def rotate(X, theta, dev):
     # Special case for theta=0: just reshape without rotation
@@ -1958,3 +2066,158 @@ def create_XRF_data_3d(n_ranks, rank, P_folder, f_P, theta_st, theta_end, n_thet
             create_XRF_data_single_theta_3d(n_det, P, theta_st, theta_end, n_theta, src_path, det_size_cm, det_from_sample_cm, det_ds_spacing_cm, sample_size_n,
                                  sample_size_cm, sample_height_n, this_aN_dic, probe_cts, probe_energy, save_path, save_fname, Poisson_noise, dev, this_theta_idx)
         P_handle.close()
+
+def rotate_3d_inplane(X, angle, dev, use_degrees=True, axis='z'):
+    """
+    Rotate a 3D object in-plane around specified axis.
+    
+    Args:
+        X: Input tensor with shape [n_element, n_x, n_y, n_z]
+        angle: Rotation angle in degrees by default
+        dev: Device to perform computations on
+        use_degrees: If True, input angle is in degrees, otherwise in radians
+        axis: Axis perpendicular to the rotation plane ('x', 'y', or 'z')
+        
+    Returns:
+        Rotated tensor with the same shape as input
+    """
+    import torch as tc
+    import math
+    
+    # Convert angle to tensor if it's not already
+    if not isinstance(angle, tc.Tensor):
+        angle = tc.tensor(angle, device=dev)
+    
+    # Convert degrees to radians if needed
+    if use_degrees:
+        angle_rad = angle * (math.pi / 180.0)
+    else:
+        angle_rad = angle
+    
+    # Print rotation angle for debugging
+    print(f"In-plane rotation around {axis}-axis: {angle} {'degrees' if use_degrees else 'radians'}")
+    
+    # Extract dimensions
+    n_element, n_x, n_y, n_z = X.shape
+    
+    # Create result tensor
+    rotated_X = tc.zeros_like(X)
+    
+    # Compute sine and cosine values
+    cos_val = tc.cos(angle_rad)
+    sin_val = tc.sin(angle_rad)
+    
+    # Create rotation matrix based on the specified axis
+    if axis.lower() == 'z':
+        # Rotating in XY plane (original implementation)
+        theta = tc.tensor([[
+            [cos_val, -sin_val, 0],
+            [sin_val, cos_val, 0]
+        ]], device=dev)
+    elif axis.lower() == 'y':
+        # Rotating in XZ plane
+        theta = tc.tensor([[
+            [cos_val, 0, -sin_val],
+            [0, 1, 0],
+            [sin_val, 0, cos_val]
+        ]], device=dev)
+    elif axis.lower() == 'x':
+        # Rotating in YZ plane
+        theta = tc.tensor([[
+            [1, 0, 0],
+            [0, cos_val, -sin_val],
+            [0, sin_val, cos_val]
+        ]], device=dev)
+    else:
+        raise ValueError(f"Invalid axis '{axis}'. Must be 'x', 'y', or 'z'.")
+    
+    # Process each element separately
+    for e in range(n_element):
+        if axis.lower() == 'z':
+            # Process each Z slice (rotate in XY plane)
+            for z in range(n_z):
+                # Extract the 2D slice
+                slice_2d = X[e, :, :, z]
+                
+                # Create the 2D rotation matrix for affine_grid
+                theta_2d = tc.tensor([[
+                    [cos_val, -sin_val, 0],
+                    [sin_val, cos_val, 0]
+                ]], device=dev)
+                
+                # Create the sampling grid
+                grid = tc.nn.functional.affine_grid(
+                    theta_2d, [1, 1, n_x, n_y], align_corners=True
+                )
+                
+                # Apply the rotation using grid_sample
+                rotated_slice = tc.nn.functional.grid_sample(
+                    slice_2d.unsqueeze(0).unsqueeze(0),
+                    grid,
+                    mode='bilinear',
+                    padding_mode='zeros',
+                    align_corners=True
+                )
+                
+                # Store the rotated slice
+                rotated_X[e, :, :, z] = rotated_slice.squeeze(0).squeeze(0)
+                
+        elif axis.lower() == 'x':
+            # Process each X slice (rotate in YZ plane)
+            for x in range(n_x):
+                # Extract the 2D slice
+                slice_2d = X[e, x, :, :]
+                
+                # Create the 2D rotation matrix for affine_grid
+                theta_2d = tc.tensor([[
+                    [cos_val, -sin_val, 0],
+                    [sin_val, cos_val, 0]
+                ]], device=dev)
+                
+                # Create the sampling grid
+                grid = tc.nn.functional.affine_grid(
+                    theta_2d, [1, 1, n_y, n_z], align_corners=True
+                )
+                
+                # Apply the rotation using grid_sample
+                rotated_slice = tc.nn.functional.grid_sample(
+                    slice_2d.unsqueeze(0).unsqueeze(0),
+                    grid,
+                    mode='bilinear',
+                    padding_mode='zeros',
+                    align_corners=True
+                )
+                
+                # Store the rotated slice
+                rotated_X[e, x, :, :] = rotated_slice.squeeze(0).squeeze(0)
+                
+        elif axis.lower() == 'y':
+            # Process each Y slice (rotate in XZ plane)
+            for y in range(n_y):
+                # Extract the 2D slice
+                slice_2d = X[e, :, y, :]
+                
+                # Create the 2D rotation matrix for affine_grid
+                theta_2d = tc.tensor([[
+                    [cos_val, -sin_val, 0],
+                    [sin_val, cos_val, 0]
+                ]], device=dev)
+                
+                # Create the sampling grid
+                grid = tc.nn.functional.affine_grid(
+                    theta_2d, [1, 1, n_x, n_z], align_corners=True
+                )
+                
+                # Apply the rotation using grid_sample
+                rotated_slice = tc.nn.functional.grid_sample(
+                    slice_2d.unsqueeze(0).unsqueeze(0),
+                    grid,
+                    mode='bilinear',
+                    padding_mode='zeros',
+                    align_corners=True
+                )
+                
+                # Store the rotated slice
+                rotated_X[e, :, y, :] = rotated_slice.squeeze(0).squeeze(0)
+    
+    return rotated_X

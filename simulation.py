@@ -10,7 +10,7 @@ import torch as tc
 tc.set_default_dtype(tc.float32)  # Set the default tensor dtype
 #tc.set_default_device('cuda:0')  # Set the default device to CPU (or 'cuda:0' for GPU)
 import time
-from util import rotate, prepare_fl_lines, intersecting_length_fl_detectorlet
+from util import prepare_fl_lines, intersecting_length_fl_detectorlet, ATOMIC_NUMBERS, rotate_3d, rotate_3d_inplane
 from misc import print_flush_root, create_summary
 from forward_model import PPM
 import warnings
@@ -19,22 +19,6 @@ import json
 from tqdm import tqdm
 import tifffile
 warnings.filterwarnings("ignore")
-
-# Add atomic numbers dictionary to replace mendeleev
-ATOMIC_NUMBERS = {
-    'H': 1, 'He': 2, 'Li': 3, 'Be': 4, 'B': 5, 'C': 6, 'N': 7, 'O': 8, 'F': 9,
-    'Ne': 10, 'Na': 11, 'Mg': 12, 'Al': 13, 'Si': 14, 'P': 15, 'S': 16, 'Cl': 17,
-    'Ar': 18, 'K': 19, 'Ca': 20, 'Sc': 21, 'Ti': 22, 'V': 23, 'Cr': 24, 'Mn': 25,
-    'Fe': 26, 'Co': 27, 'Ni': 28, 'Cu': 29, 'Zn': 30, 'Ga': 31, 'Ge': 32, 'As': 33,
-    'Se': 34, 'Br': 35, 'Kr': 36, 'Rb': 37, 'Sr': 38, 'Y': 39, 'Zr': 40, 'Nb': 41,
-    'Mo': 42, 'Tc': 43, 'Ru': 44, 'Rh': 45, 'Pd': 46, 'Ag': 47, 'Cd': 48, 'In': 49,
-    'Sn': 50, 'Sb': 51, 'Te': 52, 'I': 53, 'Xe': 54, 'Cs': 55, 'Ba': 56, 'La': 57,
-    'Ce': 58, 'Pr': 59, 'Nd': 60, 'Pm': 61, 'Sm': 62, 'Eu': 63, 'Gd': 64, 'Tb': 65,
-    'Dy': 66, 'Ho': 67, 'Er': 68, 'Tm': 69, 'Yb': 70, 'Lu': 71, 'Hf': 72, 'Ta': 73,
-    'W': 74, 'Re': 75, 'Os': 76, 'Ir': 77, 'Pt': 78, 'Au': 79, 'Hg': 80, 'Tl': 81,
-    'Pb': 82, 'Bi': 83, 'Po': 84, 'At': 85, 'Rn': 86, 'Fr': 87, 'Ra': 88, 'Ac': 89,
-    'Th': 90, 'Pa': 91, 'U': 92
-}
 
 @as_node(sink="simulation_result")
 def simulate_XRF_maps(params):
@@ -49,13 +33,13 @@ def simulate_XRF_maps(params):
     det_size_cm = params_dict['det_size_cm']
     det_from_sample_cm = params_dict['det_from_sample_cm']
     det_ds_spacing_cm = params_dict['det_ds_spacing_cm']
-    batch_size = params_dict['batch_size']
+    #batch_size = params_dict['batch_size']
     suffix = params_dict.get('suffix', '')  # Get suffix from params, default to empty string
     debug = params_dict.get('debug', False)  # Get debug flag from params, default to False
     # P_file = params_dict['P_file']
     # gpu_id = params_dict['gpu_id']
     overwrite_P = False
-    gpu_id = 0
+    gpu_id = 2
     
     if tc.cuda.is_available() and gpu_id >= 0:  
         dev = tc.device('cuda:{}'.format(gpu_id))
@@ -72,7 +56,9 @@ def simulate_XRF_maps(params):
 
     sample_size_n = X.shape[1]
     sample_height_n = X.shape[3]
-
+    batch_size = sample_height_n
+    if debug:
+        print(f'batch_size: {batch_size}')
     dia_len_n = int(1.2 * (sample_height_n**2 + sample_size_n**2 + sample_size_n**2)**0.5) #number of voxels along the diagonal direction (0,0,0) -> (nx, ny, nz)
     n_voxel_batch = batch_size * sample_size_n #number of voxels in each batch
     n_voxel = sample_height_n * sample_size_n**2     # total number of voxels. 
@@ -202,16 +188,34 @@ def simulate_XRF_maps(params):
     if debug:
         print_flush_root(0, val=f"time: {timestr}", output_file='', **stdout_options)
     
+    # Add rotatioError with self-absorption:n angles parameter with default of all zeros (no rotation)
+    rotation_angles = params_dict.get('rotation_angles', [0.0, 0.0, 0.0])
+    
+    # Format rotation angles for filename
+    # Check if rotation_angles is already a tensor
+    if not isinstance(rotation_angles, tc.Tensor):
+        rotation_str = '_rot' + '_'.join([f"{angle:.2f}".replace('.', 'p') for angle in rotation_angles])
+    else:
+        rotation_str = '_rot' + '_'.join([f"{angle:.2f}".replace('.', 'p') for angle in rotation_angles.cpu().numpy()])
+    
     # Determine suffix based on model options
     suffix = params_dict.get('suffix', '')
     if model_probe_attenuation:
         suffix += '_pa'
     if model_self_absorption:
         suffix += '_sa'
+        
+    # Add rotation info to suffix
+    # Convert rotation_angles to tensor if not already
+    if not isinstance(rotation_angles, tc.Tensor):
+        rotation_angles = tc.tensor(rotation_angles, device=dev)
+        
+    if not tc.all(rotation_angles == 0):
+        suffix += rotation_str
 
     # Construct output file names with the updated suffix
-    sim_XRF_file = f'{output_dir}/sim_xrf_E{probe_energy}_{suffix}.h5'
-    sim_XRT_file = f'{output_dir}/sim_xrt_E{probe_energy}_{suffix}.h5'
+    sim_XRF_file = f'{output_dir}/sim_xrf_E{probe_energy}{suffix}.h5'
+    sim_XRT_file = f'{output_dir}/sim_xrt_E{probe_energy}{suffix}.h5'
     params_file_name = f'sim_params_E{probe_energy}_{suffix}.txt'
 
     # initialize h5 files for saving simulated signals
@@ -227,23 +231,54 @@ def simulate_XRF_maps(params):
     ####----------------------------------------------------------------------------------####
     #### simulation ####
     start_time_total = datetime.datetime.now()  # Start time for the simulation
-    theta = tc.tensor(0.0) #rotation angle in tomography
+    
+     # rotate the 3D objects
+    if not tc.all(rotation_angles == 0):
+        print(f"Rotating object with rotation angles (degrees): {rotation_angles.cpu().numpy()}")
+        
+        # Apply rotations
+        X_rot = X.clone()
+        
+        # Apply X-axis rotation (rotate in YZ plane)
+        if rotation_angles[0] != 0:
+            X_rot = rotate_3d_inplane(X_rot, rotation_angles[0], dev, use_degrees=True, axis='x')
+            
+        # Apply Y-axis rotation if needed
+        if rotation_angles[1] != 0:
+            X_rot = rotate_3d_inplane(X_rot, rotation_angles[1], dev, use_degrees=True, axis='y')
+            
+        # Apply Z-axis rotation if needed
+        if rotation_angles[2] != 0:
+            X_rot = rotate_3d_inplane(X_rot, rotation_angles[2], dev, use_degrees=True, axis='z')
+            
+        X = X_rot.clone()
+        
+    print(f'X shape: {X.shape}')
+    for i in range(n_element):
+        tifffile.imwrite(f'{output_dir}/X_{elements[i]}_rot' + '_'.join([f"{angle:.2f}".replace('.', 'p') for angle in rotation_angles])+ '.tiff', X[i].cpu().numpy())
+
+
     ## Calculate lac using the current X. lac (linear attenuation coefficient) has the dimension of [n_element, n_lines, n_voxel_minibatch, n_voxel]
     if model_self_absorption == True:
-        # Skip rotation when theta is 0
-        if theta == 0:
-            if debug:
-                print("Theta is 0, skipping rotation and using X directly")
-            # Reshape X directly without rotation
-            X_ap_rot = X.view(n_element, -1)
-        else:
-            X_ap_rot = rotate(X, theta, dev) #dev
+        # Check if we need rotation (any non-zero angle)
+        # if tc.all(rotation_angles == 0):
+        #     # Reshape X directly without rotation
+        #     X_ap_rot = X.view(n_element, -1)
+        # else:
+        #     #X_rotated = rotate_3d(X, rotation_angles, dev)
+        #     X_ap_rot = X_rot.view(n_element, -1)
             
-        lac = X_ap_rot.view(n_element, 1, 1, n_voxel) * mass_attenuation_cross_section_FL.view(n_element, n_lines, 1, 1) #dev #Eq. 5.9
+        #lac = X_ap_rot.view(n_element, 1, 1, n_voxel) * mass_attenuation_cross_section_FL.view(n_element, n_lines, 1, 1) #dev #Eq. 5.9
+        # X is already rotated at this point
+        lac = X.view(n_element, 1, 1, n_voxel) * mass_attenuation_cross_section_FL.view(n_element, n_lines, 1, 1) #dev #Eq. 5.9
         lac = lac.expand(-1, -1, n_voxel_batch, -1).float() #dev
     else:
         lac = 0.
 
+    for i in range(n_element):
+        tifffile.imwrite(f'{output_dir}/X_{elements[i]}.tiff', X[i].cpu().numpy())
+    
+   
     # Use tqdm for progress bar if not in debug mode
     batch_iterator = range(n_batch)
     if not debug:
@@ -293,6 +328,8 @@ def simulate_XRF_maps(params):
             # Debug the input parameters to the model
             if debug:
                 print(f"\nModel input debug for batch {m+1}:")
+                if not tc.all(rotation_angles == 0):
+                    print(f"Using 3D rotation with angles: {rotation_angles.cpu().numpy()}")
                 print(f"lac shape: {lac.shape if isinstance(lac, tc.Tensor) else 'scalar 0'}")
                 print(f"X shape: {X.shape}")
                 print(f"n_element: {n_element}")
@@ -324,7 +361,7 @@ def simulate_XRF_maps(params):
                                 detected_fl_unit_concentration, n_line_group_each_element,
                                 sample_height_n, batch_size, sample_size_n, sample_size_cm,
                                 probe_energy, incident_probe_intensity, model_probe_attenuation, probe_attCS_ls,
-                                theta, signal_attenuation_factor,
+                                0, signal_attenuation_factor,
                                 n_det, P_minibatch, det_size_cm, det_from_sample_cm, det_solid_angle_ratio)
                     
                     # Try to catch CUDA errors early
@@ -340,28 +377,16 @@ def simulate_XRF_maps(params):
                                 detected_fl_unit_concentration, n_line_group_each_element,
                                 sample_height_n, batch_size, sample_size_n, sample_size_cm,
                                 probe_energy, incident_probe_intensity, model_probe_attenuation, probe_attCS_ls,
-                                theta, signal_attenuation_factor,
+                                0, signal_attenuation_factor,
                                 n_det, P_minibatch, det_size_cm, det_from_sample_cm, det_solid_angle_ratio)
                     
                     y1_hat, y2_hat = model()
                     
             except Exception as e:
-                if debug:
-                    print(f"Error with self-absorption: {str(e)}")
-                    print(f"Falling back to no self-absorption for batch {m+1}")
+                print(f"Error with self-absorption: {str(e)}")
                 
                 # Clear CUDA cache
                 tc.cuda.empty_cache()
-                
-                # Try again without self-absorption
-                model = PPM(dev, False, 0, X, p, n_element, n_lines, mass_attenuation_cross_section_FL,
-                            detected_fl_unit_concentration, n_line_group_each_element,
-                            sample_height_n, batch_size, sample_size_n, sample_size_cm,
-                            probe_energy, incident_probe_intensity, model_probe_attenuation, probe_attCS_ls,
-                            theta, signal_attenuation_factor,
-                            n_det, P_minibatch, det_size_cm, det_from_sample_cm, det_solid_angle_ratio)
-                
-                y1_hat, y2_hat = model()
             
         except Exception as e:
             if debug:
@@ -412,13 +437,13 @@ def simulate_XRF_maps(params):
     XRF_data_handle.close() 
 
     for i in range(n_element):
-        tifffile.imwrite(f'{output_dir}/sim_xrf_E{probe_energy}_{suffix}_{elements[i]}.tif', xrf_data[i])
+        tifffile.imwrite(f'{output_dir}/sim_xrf_E{probe_energy}{suffix}_{elements[i]}.tif', xrf_data[i])
 
     XRT_data_handle = h5py.File(sim_XRT_file, 'r')
     xrt_data = XRT_data_handle['exchange/data'][:]
     XRT_data_handle.close() 
 
-    tifffile.imwrite(f'{output_dir}/sim_xrt_E{probe_energy}_{suffix}.tif', xrt_data[-1])
+    tifffile.imwrite(f'{output_dir}/sim_xrt_E{probe_energy}{suffix}.tif', xrt_data[-1])
 
     if debug:
         print('simulation done')
