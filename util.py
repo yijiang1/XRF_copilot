@@ -772,12 +772,21 @@ def intersecting_length_fl_detectorlet(n_ranks, rank, det_size_cm, det_from_samp
     y_d, z_d = np.meshgrid(det_axis_2_idx_ls, det_axis_0_idx_ls)
 
     yz_mask = ((y_d - det_center_yz[0])**2 + (z_d - det_center_yz[1])**2 <= (det_size_n/2)**2).flatten()
+    
+    # Debug the calculation of the mask
+    if y_d.size > 0:
+        print("First few mask calculations:")
+        for i in range(min(5, y_d.shape[0])):
+            for j in range(min(5, y_d.shape[1])):
+                dist_sq = ((y_d[i,j] - det_center_yz[0])**2 + (z_d[i,j] - det_center_yz[1])**2)
+                result = dist_sq <= (det_size_n/2)**2
+                print(f"Point ({y_d[i,j]}, {z_d[i,j]}), dist_sq={dist_sq}, threshold={(det_size_n/2)**2}, in circle: {result}")
+    
     y_d_flat, z_d_flat = y_d.flatten()[yz_mask], z_d.flatten()[yz_mask]
 
 
     ## The number of x posision needed to fill into the coodinates depends on the number of the y(or z) coodinates within the circle of detector
     x_d_flat = np.full((y_d_flat.shape), det_axis_1_idx)
-
 
     det_pos_ls_flat = np.stack((z_d_flat, x_d_flat, y_d_flat), axis=-1)
     n_det = len(det_pos_ls_flat)
@@ -801,7 +810,7 @@ def intersecting_length_fl_detectorlet(n_ranks, rank, det_size_cm, det_from_samp
     
     #f = h5py.File(P_save_path +'.h5', 'w', driver='mpio', comm=comm)
     f = h5py.File(P_save_path +'.h5', 'w') #modified by YJ
-        
+    
     P = f.create_dataset('P_array', (n_det, 3, dia_len_n * sample_height_n * sample_size_n**2), dtype='f4', data=np.zeros((n_det, 3, dia_len_n * sample_height_n * sample_size_n**2)))
     
     

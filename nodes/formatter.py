@@ -20,7 +20,14 @@ Output MUST be JSON ONLY, do not add explanation before or after the JSON.""",
 
 def formatter_pre_process(state, client, **kwargs):
     record_messages(
-        state, [("assistant", f"{state['agent_nickname']}: I will summarize input parameters from our conversation.", "green")]
+        state,
+        [
+            (
+                "assistant",
+                f"{state['agent_nickname']}: I will summarize input parameters from our conversation.",
+                "green",
+            )
+        ],
     )
     return state
 
@@ -30,11 +37,21 @@ def formatter_post_process(state, client, **kwargs):
         record_messages(
             state,
             [
-                ("assistant", f"{state['agent_nickname']}: Here are the current parameters:", "blue"),
-                ("assistant", "\n".join([f"{key}: {value}" for key, value in params_dict.items()]), "blue"),
+                (
+                    "assistant",
+                    f"{state['agent_nickname']}: Here are the current parameters:",
+                    "blue",
+                ),
+                (
+                    "assistant",
+                    "\n".join(
+                        [f"{key}: {value}" for key, value in params_dict.items()]
+                    ),
+                    "blue",
+                ),
             ],
         )
     return state
 
 formatter.pre_process = formatter_pre_process
-formatter.post_process = formatter_post_process 
+formatter.post_process = formatter_post_process

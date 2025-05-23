@@ -1,29 +1,23 @@
-from workflow import XRFSim
 import argparse
-from anl_client import Argo_Client
 from nodes import XRF_Copilot_State
+from workflow import XRFSim
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="XRF Copilot"
-    )
+    parser = argparse.ArgumentParser(description="XRF Copilot")
     parser.add_argument("-u", type=str, default="User", help="User name")
     parser.add_argument("-v", type=bool, default=False, help="Verbose mode")
-    parser.add_argument("-llm", type=str, default="gpt4o", help="LLM model")
+    parser.add_argument("-llm", type=str, default="gpt-4o", help="LLM model")
+    parser.add_argument("-vlm", type=str, default="gpt-4o", help="VLM model")
 
     args = parser.parse_args()
-
-    #workflow = XRFSim(llm=args.llm, user=args.u, verbose=args.v, debug_mode=False)
-    #workflow = XRFSim(debug_mode=True)
-
-    #result = workflow.run(ui=True)
 
     workflow = XRFSim(
         state_defs=XRF_Copilot_State,
         name="XRF_sim",
-        llm_name=Argo_Client(args.llm),
-        vlm_name="gpt-4o",
-        debug_mode=False)
+        llm_name=args.llm,
+        vlm_name=args.vlm,
+        debug_mode=False,
+    )
 
     questions = """- What's the full path to the ground truth objects in npy format? (String for the full path to a npy file. Should end with .npy)
         - What elements do you want to simulate?
@@ -52,11 +46,11 @@ if __name__ == "__main__":
         """
 
     initial_state = {
-        "questions": questions, 
-        "params_desc": params_desc, 
-        "agent_nickname": 'Fluoro', 
-        "user": 'User',
+        "questions": questions,
+        "params_desc": params_desc,
+        "agent_nickname": "Fluoro",
+        "user": "User",
         "verbose": True,
     }
 
-    result = workflow.run(init_values=initial_state, ui=False)
+    result = workflow.run(init_values=initial_state, ui=True)

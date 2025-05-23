@@ -3,14 +3,20 @@ import sys
 import datetime
 import numpy as np
 import h5py
-#from mpi4py import MPI
+
+# from mpi4py import MPI
 import xraylib as xlib
 import xraylib_np as xlib_np
 import torch as tc
 tc.set_default_dtype(tc.float32)  # Set the default tensor dtype
-#tc.set_default_device('cuda:0')  # Set the default device to CPU (or 'cuda:0' for GPU)
 import time
-from util import prepare_fl_lines, intersecting_length_fl_detectorlet, ATOMIC_NUMBERS, rotate_3d, rotate_3d_inplane
+from util import (
+    prepare_fl_lines,
+    intersecting_length_fl_detectorlet,
+    ATOMIC_NUMBERS,
+    rotate_3d,
+    rotate_3d_inplane,
+)
 from misc import print_flush_root, create_summary
 from forward_model import PPM
 import warnings
@@ -20,46 +26,52 @@ from tqdm import tqdm
 import tifffile
 warnings.filterwarnings("ignore")
 
-@as_node(sink="simulation_result")
+@as_node(sink=["sim_XRF_file", "sim_XRT_file"])
 def simulate_XRF_maps(params):
     params_dict = json.loads(params)
-    ground_truth_file = params_dict['ground_truth_file']
-    probe_energy = np.array(params_dict['probe_energy'])
-    incident_probe_intensity = params_dict['incident_probe_intensity']
-    model_probe_attenuation = params_dict['model_probe_attenuation']
-    model_self_absorption = params_dict['model_self_absorption']
-    elements = params_dict['elements']
-    sample_size_cm = params_dict['sample_size_cm']
-    det_size_cm = params_dict['det_size_cm']
-    det_from_sample_cm = params_dict['det_from_sample_cm']
-    det_ds_spacing_cm = params_dict['det_ds_spacing_cm']
-    #batch_size = params_dict['batch_size']
-    suffix = params_dict.get('suffix', '')  # Get suffix from params, default to empty string
-    debug = params_dict.get('debug', False)  # Get debug flag from params, default to False
-    # P_file = params_dict['P_file']
-    # gpu_id = params_dict['gpu_id']
+    ground_truth_file = params_dict["ground_truth_file"]
+    probe_energy = np.array(params_dict["probe_energy"])
+    incident_probe_intensity = params_dict["incident_probe_intensity"]
+    model_probe_attenuation = params_dict["model_probe_attenuation"]
+    model_self_absorption = params_dict["model_self_absorption"]
+    elements = params_dict["elements"]
+    sample_size_cm = params_dict["sample_size_cm"]
+    det_size_cm = params_dict["det_size_cm"]
+    det_from_sample_cm = params_dict["det_from_sample_cm"]
+    det_ds_spacing_cm = params_dict["det_ds_spacing_cm"]
+    # batch_size = params_dict['batch_size']
+    suffix = params_dict.get(
+        "suffix", ""
+    )  # Get suffix from params, default to empty string
+    debug = params_dict.get(
+        "debug", False
+    )  # Get debug flag from params, default to False
     overwrite_P = False
-    gpu_id = 2
+    gpu_id = 3
     
-    if tc.cuda.is_available() and gpu_id >= 0:  
-        dev = tc.device('cuda:{}'.format(gpu_id))
-    else:  
+    if tc.cuda.is_available() and gpu_id >= 0:
+        dev = tc.device("cuda:{}".format(gpu_id))
+    else:
         dev = "cpu"
     if debug:
-        print(f'Device: {dev}')
+        print(f"Device: {dev}")
+
     ####----------------------------------------------------------------------------------####
     #### load true 3D objects ####
     X = np.load(ground_truth_file)
     if debug:
-        print(f'Test objects size: {X.shape}')
+        print(f"Test objects size: {X.shape}")
     X = tc.from_numpy(X).float().to(dev) #cpu
 
     sample_size_n = X.shape[1]
     sample_height_n = X.shape[3]
     batch_size = sample_height_n
     if debug:
-        print(f'batch_size: {batch_size}')
-    dia_len_n = int(1.2 * (sample_height_n**2 + sample_size_n**2 + sample_size_n**2)**0.5) #number of voxels along the diagonal direction (0,0,0) -> (nx, ny, nz)
+        print(f"batch_size: {batch_size}")
+    dia_len_n = int(
+        1.2 * (sample_height_n**2 + sample_size_n**2 + sample_size_n**2) ** 0.5
+    )  # number of voxels along the diagonal direction (0,0,0) -> (nx, ny, nz)
+
     n_voxel_batch = batch_size * sample_size_n #number of voxels in each batch
     n_voxel = sample_height_n * sample_size_n**2     # total number of voxels. 
     # sample_size_n seems to be the size along x and y axis in Figure 5.1.
@@ -96,9 +108,13 @@ def simulate_XRF_maps(params):
     if debug:
         print(f'n_line_group_each_element: {n_line_group_each_element}')
     # Create a lookup table of the fluorescence lines of interests
-    fl_all_lines_dic = prepare_fl_lines(element_lines_roi,                           
-                                        n_line_group_each_element, probe_energy, 
-                                        sample_size_n, sample_size_cm) #cpu
+    fl_all_lines_dic = prepare_fl_lines(
+        element_lines_roi,
+        n_line_group_each_element,
+        probe_energy,
+        sample_size_n,
+        sample_size_cm,
+    )  # cpu
     if debug:
         print(f'fl_all_lines_dic done')
 
@@ -161,13 +177,13 @@ def simulate_XRF_maps(params):
     ####----------------------------------------------------------------------------------####
     #### get P array #### 
     output_dir = os.path.join(os.path.dirname(ground_truth_file), 
-                               f'det_size{det_size_cm}_spacing_{det_size_cm}_dist{det_from_sample_cm}_sample_size{sample_size_cm}_nxy{sample_size_n}_nz{sample_height_n}')
+                               f'det_size{det_size_cm}_spacing_{det_ds_spacing_cm}_dist{det_from_sample_cm}_sample_size{sample_size_cm}_nxy{sample_size_n}_nz{sample_height_n}')
     os.makedirs(output_dir, exist_ok=True)
 
     #Check if the P array exists, if it doesn't exist, call the function to calculate the P array and store it as a .h5 file.
     if not os.path.isfile(f'{output_dir}/P_array.h5') or overwrite_P:
-        if debug:
-            print(f'Calculating the intersecting length array P. This will take quite some time...')
+        #if debug:
+        print(f'Calculating the intersecting length array P. This will take quite some time...')
         intersecting_length_fl_detectorlet(n_ranks, rank,
                                            det_size_cm, det_from_sample_cm, det_ds_spacing_cm,
                                            sample_size_n, sample_size_cm, sample_height_n, 
@@ -193,13 +209,15 @@ def simulate_XRF_maps(params):
     
     # Format rotation angles for filename
     # Check if rotation_angles is already a tensor
-    if not isinstance(rotation_angles, tc.Tensor):
-        rotation_str = '_rot' + '_'.join([f"{angle:.2f}".replace('.', 'p') for angle in rotation_angles])
-    else:
-        rotation_str = '_rot' + '_'.join([f"{angle:.2f}".replace('.', 'p') for angle in rotation_angles.cpu().numpy()])
+    #if not isinstance(rotation_angles, tc.Tensor):
+    rotation_str = '_rot' + '_'.join([f"{angle:.1f}".replace('.', 'p') for angle in rotation_angles])
+    #else:
+    #    rotation_str = '_rot' + '_'.join([f"{angle:.2f}".replace('.', 'p') for angle in rotation_angles.cpu().numpy()])
     
     # Determine suffix based on model options
     suffix = params_dict.get('suffix', '')
+    suffix += rotation_str
+
     if model_probe_attenuation:
         suffix += '_pa'
     if model_self_absorption:
@@ -208,10 +226,7 @@ def simulate_XRF_maps(params):
     # Add rotation info to suffix
     # Convert rotation_angles to tensor if not already
     if not isinstance(rotation_angles, tc.Tensor):
-        rotation_angles = tc.tensor(rotation_angles, device=dev)
-        
-    if not tc.all(rotation_angles == 0):
-        suffix += rotation_str
+        rotation_angles = tc.tensor(rotation_angles, device=dev)    
 
     # Construct output file names with the updated suffix
     sim_XRF_file = f'{output_dir}/sim_xrf_E{probe_energy}{suffix}.h5'
@@ -254,8 +269,10 @@ def simulate_XRF_maps(params):
         X = X_rot.clone()
         
     print(f'X shape: {X.shape}')
-    for i in range(n_element):
-        tifffile.imwrite(f'{output_dir}/X_{elements[i]}_rot' + '_'.join([f"{angle:.2f}".replace('.', 'p') for angle in rotation_angles])+ '.tiff', X[i].cpu().numpy())
+    if debug:
+        for i in range(n_element):
+            #tifffile.imwrite(f'{output_dir}/X_{elements[i]}.tiff', X[i].cpu().numpy())
+            tifffile.imwrite(f'{output_dir}/X_{elements[i]}_rot' + '_'.join([f"{angle:.1f}".replace('.', 'p') for angle in rotation_angles])+ '.tiff', X[i].cpu().numpy())
 
 
     ## Calculate lac using the current X. lac (linear attenuation coefficient) has the dimension of [n_element, n_lines, n_voxel_minibatch, n_voxel]
@@ -274,10 +291,6 @@ def simulate_XRF_maps(params):
         lac = lac.expand(-1, -1, n_voxel_batch, -1).float() #dev
     else:
         lac = 0.
-
-    for i in range(n_element):
-        tifffile.imwrite(f'{output_dir}/X_{elements[i]}.tiff', X[i].cpu().numpy())
-    
    
     # Use tqdm for progress bar if not in debug mode
     batch_iterator = range(n_batch)
@@ -446,6 +459,8 @@ def simulate_XRF_maps(params):
     tifffile.imwrite(f'{output_dir}/sim_xrt_E{probe_energy}{suffix}.tif', xrt_data[-1])
 
     if debug:
-        print('simulation done')
-    return "Simulation result"
+        print("simulation done")
+    print(f"sim_XRF_file: {sim_XRF_file}")
+    print(f"sim_XRT_file: {sim_XRT_file}")
+    return sim_XRF_file, sim_XRT_file
     
