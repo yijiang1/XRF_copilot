@@ -137,7 +137,7 @@ def display_simulation_results(sim_XRF_file, sim_XRT_file):
     # Create and send XRF maps for each element
     for i, element in enumerate(elements):
         fig = go.Figure(
-            data=go.Heatmap(z=xrf_data[i], colorscale="Viridis", showscale=True)
+            data=go.Heatmap(z=xrf_data[i], colorscale="gray", showscale=True)
         )
         fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))
         run_sync(
@@ -149,7 +149,7 @@ def display_simulation_results(sim_XRF_file, sim_XRT_file):
 
     # Create and send XRT map
     fig = go.Figure(
-        data=go.Heatmap(z=xrt_data[-1], colorscale="Viridis", showscale=True)
+        data=go.Heatmap(z=xrt_data[-1], colorscale="gray", showscale=True)
     )
     fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))
     run_sync(
@@ -161,7 +161,7 @@ def display_simulation_results(sim_XRF_file, sim_XRT_file):
     return
 
 
-class XRFSim(Workflow):
+class XRF_Copilot(Workflow):
     def create_workflow(self):
         self.add_node("params_collector", survey)
         self.add_node("ask_parameters_input", ask_parameters_input)

@@ -1,6 +1,6 @@
 import argparse
 from nodes import XRF_Copilot_State
-from workflow import XRFSim
+from workflow import XRF_Copilot
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="XRF Copilot")
@@ -11,9 +11,9 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    workflow = XRFSim(
+    workflow = XRF_Copilot(
         state_defs=XRF_Copilot_State,
-        name="XRF_sim",
+        name="XRF_Copilot",
         llm_name=args.llm,
         vlm_name=args.vlm,
         debug_mode=False,
