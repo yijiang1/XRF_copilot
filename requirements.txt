@@ -1,8 +1,25 @@
-git+https://github.com/xyin-anl/Nodeology.git
+# Frontend
+nicegui>=2.0
+httpx
+
+# Backend
+fastapi
+uvicorn[standard]
+
+# LLM Chat Assistant
+openai
+
+# Simulation engine
 xraylib
 scipy
 torch
 h5py
 tifffile
-jsonschema
-msgpack
+numpy
+
+# Visualization
+plotly
+
+# Utilities
+python-dotenv
+paramiko   # SSH for launcher.py

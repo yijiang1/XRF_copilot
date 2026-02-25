@@ -10,8 +10,8 @@ import torch.nn.functional as F
 import os
 import sys
 from tqdm import tqdm
-from misc import print_flush_root
-from Atomic_number import AN
+from .misc import print_flush_root
+from .Atomic_number import AN
 from scipy.spatial.transform import Rotation
 import math
 

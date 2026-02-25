@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "xrf-copilot"
+version = "0.1.0"
+description = "XRF Fluorescence Simulation Copilot — NiceGUI frontend + FastAPI backend"
+requires-python = ">=3.10"
+dependencies = [
+    "nicegui>=2.0",
+    "httpx",
+    "fastapi",
+    "uvicorn[standard]",
+    "openai",
+    "xraylib",
+    "scipy",
+    "torch",
+    "h5py",
+    "tifffile",
+    "numpy",
+    "plotly",
+    "python-dotenv",
+]
+
+[project.scripts]
+xrf-gui = "src.nicegui_app.main:run"
+xrf-backend = "src.services.main:cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
