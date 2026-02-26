@@ -1,5 +1,10 @@
-"""Test that unified variable names (probe_energy, theta_ls_dataset) work correctly
-in both the Pydantic models and the worker param-extraction logic.
+"""Test that unified variable names work correctly in both Pydantic models
+and worker param-extraction logic.
+
+Unified names tested:
+  probe_energy      (was x_ray_energy in BNL)
+  theta_ls_dataset  (was hardcoded 'thetas' in BNL)
+  element_symbols   (was element_type in BNL, elements_atomic_numbers in Panpan)
 
 No GPU or ASTRA required — this tests the API/model layer only.
 Data is read from testing_ground/.
@@ -47,10 +52,16 @@ try:
 except Exception as e:
     check("FLCorrectionParams construction", False, str(e))
 
-# Must NOT have x_ray_energy in the model's declared fields
+# Must have element_symbols (not element_type or x_ray_energy)
 declared_fields = set(FLCorrectionParams.model_fields.keys()) if hasattr(FLCorrectionParams, "model_fields") else set(FLCorrectionParams.__fields__.keys())
 check("x_ray_energy removed from declared fields",
       "x_ray_energy" not in declared_fields,
+      f"declared fields: {sorted(declared_fields)}")
+check("element_type removed from FLCorrectionParams",
+      "element_type" not in declared_fields,
+      f"declared fields: {sorted(declared_fields)}")
+check("element_symbols present in FLCorrectionParams",
+      "element_symbols" in declared_fields,
       f"declared fields: {sorted(declared_fields)}")
 
 # Custom theta_ls_dataset
@@ -59,7 +70,7 @@ check("theta_ls_dataset accepts custom value", fl_custom.theta_ls_dataset == "ex
 
 
 # ── 2. Pydantic model: XRFReconstructionParams ────────────────────────────────
-print("\n[2] XRFReconstructionParams — field names unchanged")
+print("\n[2] XRFReconstructionParams — unified field names")
 try:
     recon_params = XRFReconstructionParams(
         data_path="/tmp",
@@ -69,38 +80,54 @@ try:
         P_folder="/tmp/P",
         probe_energy=20.0,
         theta_ls_dataset="exchange/theta",
+        element_symbols="Ca, Sc",
     )
     check("XRFReconstructionParams accepts probe_energy=20.0", True)
     check("probe_energy value stored correctly", recon_params.probe_energy == 20.0)
     check("theta_ls_dataset default is 'exchange/theta'", recon_params.theta_ls_dataset == "exchange/theta")
+    check("element_symbols stored correctly", recon_params.element_symbols == "Ca, Sc")
 except Exception as e:
     check("XRFReconstructionParams construction", False, str(e))
+
+recon_declared = set(XRFReconstructionParams.model_fields.keys()) if hasattr(XRFReconstructionParams, "model_fields") else set(XRFReconstructionParams.__fields__.keys())
+check("elements_atomic_numbers removed from XRFReconstructionParams",
+      "elements_atomic_numbers" not in recon_declared,
+      f"declared fields: {sorted(recon_declared)}")
+check("element_symbols present in XRFReconstructionParams",
+      "element_symbols" in recon_declared,
+      f"declared fields: {sorted(recon_declared)}")
 
 
 # ── 3. FL worker param extraction ─────────────────────────────────────────────
 print("\n[3] FL worker param extraction logic")
 
-# Simulate exactly what fl_worker.py does (lines 93-105)
 params_dict = fl_params.model_dump()
 
-# theta_ls_dataset extraction
 theta_key = params_dict.get("theta_ls_dataset", "thetas")
 check("Worker reads theta_ls_dataset from params", theta_key == "thetas",
       f"got '{theta_key}'")
 
-# probe_energy extraction
 XEng = float(params_dict.get("probe_energy", 13.577))
 check("Worker reads probe_energy as XEng", abs(XEng - 13.577) < 1e-9,
       f"got {XEng}")
 
-# Old key must not be present
-check("'x_ray_energy' key absent from params dict",
+elem_type = [e.strip() for e in params_dict.get("element_symbols", "").split(",") if e.strip()]
+check("Worker reads element_symbols from FL params dict",
+      "element_symbols" in params_dict,
+      f"keys: {list(params_dict.keys())}")
+
+check("'x_ray_energy' key absent from FL params dict",
       "x_ray_energy" not in params_dict,
+      f"keys: {list(params_dict.keys())}")
+check("'element_type' key absent from FL params dict",
+      "element_type" not in params_dict,
       f"keys: {list(params_dict.keys())}")
 
 
 # ── 4. Reconstruction worker param extraction ─────────────────────────────────
 print("\n[4] Reconstruction worker param extraction logic")
+
+import xraylib as _xlib
 
 recon_dict = recon_params.model_dump()
 probe_e = np.array([recon_dict["probe_energy"]])
@@ -109,6 +136,16 @@ check("Worker reads probe_energy → np.array", probe_e[0] == 20.0,
       f"got {probe_e}")
 check("Worker reads theta_ls_dataset='exchange/theta'",
       theta_ds == "exchange/theta", f"got '{theta_ds}'")
+
+# Simulate _parse_element_symbols() from recon_worker.py
+syms = recon_dict["element_symbols"]   # "Ca, Sc"
+this_aN_dic = {s.strip(): _xlib.SymbolToAtomicNumber(s.strip())
+               for s in syms.split(",") if s.strip()}
+check("element_symbols 'Ca, Sc' → this_aN_dic {'Ca':20,'Sc':21}",
+      this_aN_dic == {"Ca": 20, "Sc": 21}, f"got {this_aN_dic}")
+check("'elements_atomic_numbers' key absent from recon params dict",
+      "elements_atomic_numbers" not in recon_dict,
+      f"keys: {list(recon_dict.keys())}")
 
 
 # ── 5. HDF5 angle loading with theta_ls_dataset (BNL data) ───────────────────

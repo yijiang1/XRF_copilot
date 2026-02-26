@@ -529,8 +529,8 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Scan param.</span></td>
       <td style="padding:6px 10px; color:#374151;">Which chemical elements to reconstruct and which FL lines to include. Drives all xraylib lookups and sets n_element, n_lines.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">element set</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">this_aN_dic (name→Z), element_lines_roi;<br>n_line_group_each_element</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">elem_type list (e.g. ['Zr','La','Hf']);<br>passed to get_atten_coef(), generate_H()</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">element_symbols → this_aN_dic (name→Z via xraylib);<br>element_lines_roi; n_line_group_each_element</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">element_symbols → elem_type list (e.g. ['Zr','La','Hf']);<br>passed to get_atten_coef(), generate_H()</td>
     </tr>
 
     <!-- ══ SECTION: Physical constants ══ -->

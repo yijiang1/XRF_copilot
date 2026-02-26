@@ -105,7 +105,7 @@ def fl_correction_worker_process(params: dict, status_queue, stop_event):
         XEng       = float(params.get("probe_energy", 13.577))
         pix_nm     = float(params.get("pixel_size_nm", 500))
         pix        = float(f"{pix_nm * 1e-7:.1e}")  # nm → cm, same rounding as load_param
-        elem_type  = [e.strip() for e in params.get("element_type", "Ti, Cr, Fe, Ni, Ba").split(",") if e.strip()]
+        elem_type  = [e.strip() for e in params.get("element_symbols", "Ti, Cr, Fe, Ni, Ba").split(",") if e.strip()]
         xrf_shell  = [s.strip() for s in params.get("xrf_shell", "K, K, K, K, L").split(",") if s.strip()]
         rho_values = [float(x.strip()) for x in params.get("density", "4.506, 7.19, 7.874, 8.90, 3.59").split(",") if x.strip()]
         em_E_vals  = [float(x.strip()) for x in params.get("emission_energy", "4.509, 5.411, 6.399, 7.472, 4.463").split(",") if x.strip()]

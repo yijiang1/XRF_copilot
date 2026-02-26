@@ -400,14 +400,14 @@ def create_fl_parameter_form(state: FLState) -> tuple[dict, list]:
         # Element + IC selectors — populated when the HDF5 file is loaded.
         elem_selector = _ElementSelector()
         ic_selector   = _ICSelector()
-        input_elements["element_type"]            = elem_selector
+        input_elements["element_symbols"]         = elem_selector
         input_elements["element_channel_indices"] = _IndicesProxy(elem_selector)
         input_elements["xrf_shell"]               = _ShellProxy(elem_selector)
         input_elements["density"]                 = _DensityProxy(elem_selector)
         input_elements["emission_energy"]         = _EmissionProxy(elem_selector)
         input_elements["ic_channel_idx"]          = ic_selector
         valid_params.extend([
-            "element_type", "element_channel_indices", "xrf_shell",
+            "element_symbols", "element_channel_indices", "xrf_shell",
             "density", "emission_energy", "ic_channel_idx",
         ])
 

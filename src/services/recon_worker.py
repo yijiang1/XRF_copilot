@@ -36,14 +36,14 @@ def setup_worker_logger(status_queue):
     return logger
 
 
-def _parse_elements_atomic_numbers(s: str) -> dict:
-    """Parse 'Ca:20, Sc:21' → {'Ca': 20, 'Sc': 21}."""
+def _parse_element_symbols(s: str) -> dict:
+    """Parse 'Ca, Sc' → {'Ca': 20, 'Sc': 21} via xraylib atomic number lookup."""
+    import xraylib
     result = {}
     for part in s.split(","):
-        part = part.strip()
-        if ":" in part:
-            elem, num = part.split(":", 1)
-            result[elem.strip()] = int(num.strip())
+        sym = part.strip()
+        if sym:
+            result[sym] = xraylib.SymbolToAtomicNumber(sym)
     return result
 
 
@@ -91,7 +91,7 @@ def reconstruction_worker_process(params: dict, status_queue, stop_event):
         worker_logger.info(f"Using device: {dev}")
 
         # ── Parse user-friendly string params into reconstruction format ──
-        this_aN_dic = _parse_elements_atomic_numbers(params["elements_atomic_numbers"])
+        this_aN_dic = _parse_element_symbols(params["element_symbols"])
         element_lines_roi = _parse_element_lines_roi(params["element_lines_roi_str"])
         n_line_group_each_element = _parse_int_list(params["n_line_group_each_element_str"])
 

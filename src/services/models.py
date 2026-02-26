@@ -59,8 +59,8 @@ class XRFReconstructionParams(BaseModel):
     sample_size_cm: float = 0.01
 
     # ── Elements (parsed from user-friendly strings) ──
-    # e.g. "Ca:20, Sc:21"  →  {"Ca": 20, "Sc": 21}
-    elements_atomic_numbers: str = "Ca:20, Sc:21"
+    # e.g. "Ca, Sc"  →  {"Ca": 20, "Sc": 21}  (atomic numbers auto-looked up via xraylib)
+    element_symbols: str = "Ca, Sc"
     # e.g. "Ca K, Ca L, Sc K, Sc L"  →  [["Ca","K"],["Ca","L"],...]
     element_lines_roi_str: str = "Ca K, Ca L, Sc K, Sc L"
     # e.g. "2, 2"  →  [2, 2]
@@ -115,7 +115,7 @@ class FLCorrectionParams(BaseModel):
     theta_ls_dataset: str = "thetas"  # HDF5 dataset key containing rotation angles (degrees)
 
     # ── Sample physics (from GUI element tiles) ──
-    element_type: str = ""            # Comma-sep element symbols, e.g. "Ti, Fe, Cu"
+    element_symbols: str = ""         # Comma-sep element symbols, e.g. "Ti, Fe, Cu"
     xrf_shell: str = ""              # Comma-sep K/L shell per element, e.g. "K, K, L"
     density: str = ""                # Comma-sep compound densities (g/cm³), e.g. "4.506, 7.874"
     emission_energy: str = ""        # Comma-sep Kα/Lα energies (keV), e.g. "4.509, 6.399"

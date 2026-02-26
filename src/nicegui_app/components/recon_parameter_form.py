@@ -140,13 +140,16 @@ def create_recon_parameter_form(state: ReconState) -> tuple[dict, list]:
         with ui.expansion("Elements", icon="biotech").classes("w-full"):
             with ui.column().classes("w-full gap-2 p-2"):
                 el = ui.input(
-                    "Elements & Atomic Numbers",
-                    value="Ca:20, Sc:21",
-                    placeholder="Ca:20, Sc:21, Fe:26",
+                    "Element Symbols",
+                    value="Ca, Sc",
+                    placeholder="Ca, Sc, Fe",
                 ).classes("w-full")
-                el.tooltip("Element symbol and atomic number pairs, separated by commas")
-                input_elements["elements_atomic_numbers"] = el
-                valid_params.append("elements_atomic_numbers")
+                el.tooltip(
+                    "Comma-separated element symbols — atomic numbers are looked up automatically. "
+                    "e.g. 'Ca, Sc' or 'Ti, Cr, Fe, Ni'"
+                )
+                input_elements["element_symbols"] = el
+                valid_params.append("element_symbols")
 
                 el = ui.input(
                     "Element Lines ROI",
