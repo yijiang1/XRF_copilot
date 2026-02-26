@@ -17,6 +17,11 @@ h5py
 tifffile
 numpy
 
+# Reconstruction (Panpan method) — install mpi4py via conda-forge, not pip
+# conda install -c conda-forge mpi4py   (brings openmpi)
+mpi4py
+dxchange
+
 # Visualization
 plotly
 

@@ -21,6 +21,10 @@ dependencies = [
     "numpy",
     "plotly",
     "python-dotenv",
+    # Reconstruction (Panpan method) — install mpi4py via conda-forge, not pip
+    # conda install -c conda-forge mpi4py   (brings openmpi)
+    "mpi4py",
+    "dxchange",
 ]
 
 [project.scripts]
