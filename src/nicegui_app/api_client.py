@@ -187,3 +187,58 @@ class XRFSimulationAPIClient:
         )
         resp.raise_for_status()
         return resp.json()
+
+    # ── Di et al. 2017 reconstruction endpoints ───────────────────────────────
+
+    async def setup_di_reconstruction(self, params: dict) -> dict:
+        resp = await self._client.post(
+            f"{self.endpoint}/setup_di_reconstruction/",
+            json=params,
+            headers=self._headers(),
+        )
+        if resp.status_code == 422:
+            raise Exception(f"Validation error: {resp.json()}")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def run_di_reconstruction(self) -> dict:
+        resp = await self._client.post(
+            f"{self.endpoint}/run_di_reconstruction/", headers=self._headers()
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def stop_di_reconstruction(self) -> dict:
+        resp = await self._client.post(
+            f"{self.endpoint}/stop_di_reconstruction/", headers=self._headers()
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_di_recon_progress(self) -> dict:
+        resp = await self._client.post(
+            f"{self.endpoint}/get_di_recon_progress/", headers=self._headers()
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_di_recon_status(self) -> dict:
+        resp = await self._client.post(
+            f"{self.endpoint}/get_di_recon_status/", headers=self._headers()
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_di_recon_results(self) -> dict:
+        resp = await self._client.post(
+            f"{self.endpoint}/get_di_recon_results/", headers=self._headers()
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_di_recon_worker_status(self) -> dict:
+        resp = await self._client.post(
+            f"{self.endpoint}/get_di_recon_worker_status/", headers=self._headers()
+        )
+        resp.raise_for_status()
+        return resp.json()

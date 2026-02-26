@@ -7,6 +7,7 @@ from .pages.simulation import create_simulation_page
 from .pages.reconstruction import create_reconstruction_page
 from .pages.fl_correction import create_fl_correction_page
 from .pages.method_explanation import create_method_explanation_page
+from .pages.di_reconstruction import create_di_reconstruction_page
 
 # Runtime API key (set via CLI, overrides .env)
 _runtime_api_key: str = ""
@@ -130,6 +131,7 @@ def _create_nav_header(active_page: str, key: str):
         nav_items = [
             ("Simulation", "science", "simulation", f"/{key}"),
             ("Reconstruction (Panpan)", "auto_fix_high", "reconstruction", f"/{key}/reconstruction"),
+            ("Reconstruction (Di)", "analytics", "di_reconstruction", f"/{key}/di-reconstruction"),
             ("Reconstruction (BNL)", "biotech", "fl_correction", f"/{key}/fl-correction"),
             ("Method", "menu_book", "method_explanation", f"/{key}/method-bnl"),
         ]
@@ -183,6 +185,17 @@ def fl_correction(key: str):
     ui.query("body").classes("app-body")
     _create_nav_header("fl_correction", key)
     create_fl_correction_page(api_key=_get_api_key())
+
+
+@ui.page("/{key}/di-reconstruction", title="Reconstruction (Di et al. 2017)", favicon=_FAVICON)
+def di_reconstruction(key: str):
+    """Di et al. 2017 XRF tomographic reconstruction page."""
+    if key != _get_api_key():
+        _unauthorized()
+        return
+    ui.query("body").classes("app-body")
+    _create_nav_header("di_reconstruction", key)
+    create_di_reconstruction_page(api_key=_get_api_key())
 
 
 @ui.page("/{key}/method-bnl", title="Method Explanation (BNL)", favicon=_FAVICON)

@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from .routes import setup, run, stop, status
 from .routes import recon_setup, recon_run, recon_stop, recon_status
 from .routes import fl_setup, fl_run, fl_stop, fl_status
+from .routes import di_setup, di_run, di_stop, di_status
 
 # Configure logging
 logging.basicConfig(
@@ -107,6 +108,25 @@ fl_output = {
 fl_worker_logs = []
 fl_latest_worker_status = {"timestamp": 0, "status": None}
 
+# Shared state for Di et al. reconstruction process
+di_process_status = {
+    "is_running": False,
+    "process": None,
+    "status_queue": None,
+    "stop_event": None,
+}
+
+di_output = {
+    "params": None,
+    "error": None,
+    "current_epoch": 0,
+    "total_epochs": 0,
+    "recon_file": "",
+}
+
+di_worker_logs = []
+di_latest_worker_status = {"timestamp": 0, "status": None}
+
 
 def cleanup_resources():
     """Clean up worker process on shutdown."""
@@ -159,6 +179,22 @@ def cleanup_resources():
         fl_process_status["status_queue"] = None
         fl_process_status["stop_event"] = None
 
+    if (
+        di_process_status["is_running"]
+        and di_process_status["process"]
+        and di_process_status["process"].is_alive()
+    ):
+        if di_process_status["stop_event"]:
+            di_process_status["stop_event"].set()
+        di_process_status["process"].terminate()
+        di_process_status["process"].join(timeout=2)
+        if di_process_status["process"].is_alive():
+            di_process_status["process"].kill()
+        di_process_status["is_running"] = False
+        di_process_status["process"] = None
+        di_process_status["status_queue"] = None
+        di_process_status["stop_event"] = None
+
     logger.info("Cleanup complete")
 
 
@@ -187,6 +223,12 @@ fl_run.fl_run_endpoint(fl_process_status, fl_output, fl_latest_worker_status, fl
 fl_stop.fl_stop_endpoint(fl_process_status, fl_output, fl_latest_worker_status)
 fl_status.fl_status_endpoints(fl_process_status, fl_output, fl_latest_worker_status, fl_worker_logs)
 
+# Initialize Di et al. reconstruction routes
+di_setup.di_setup_endpoint(di_output)
+di_run.di_run_endpoint(di_process_status, di_output, di_latest_worker_status, di_worker_logs)
+di_stop.di_stop_endpoint(di_process_status, di_output, di_latest_worker_status)
+di_status.di_status_endpoints(di_process_status, di_output, di_latest_worker_status, di_worker_logs)
+
 # Include routers
 app.include_router(setup.router, tags=["Simulation"])
 app.include_router(run.router, tags=["Simulation"])
@@ -200,6 +242,10 @@ app.include_router(fl_setup.router, tags=["FL Correction (BNL)"])
 app.include_router(fl_run.router, tags=["FL Correction (BNL)"])
 app.include_router(fl_stop.router, tags=["FL Correction (BNL)"])
 app.include_router(fl_status.router, tags=["FL Correction (BNL)"])
+app.include_router(di_setup.router, tags=["Reconstruction (Di et al.)"])
+app.include_router(di_run.router, tags=["Reconstruction (Di et al.)"])
+app.include_router(di_stop.router, tags=["Reconstruction (Di et al.)"])
+app.include_router(di_status.router, tags=["Reconstruction (Di et al.)"])
 
 
 @app.get("/")

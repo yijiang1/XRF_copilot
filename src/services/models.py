@@ -105,6 +105,71 @@ class XRFReconstructionParams(BaseModel):
     gpu_id: int = 3
 
 
+class DiReconParams(BaseModel):
+    """Pydantic model for Di et al. 2017 XRF tomographic reconstruction (Python/PyTorch)."""
+
+    # ── Data paths ──
+    data_path: str
+    f_XRF_data: str
+    f_XRT_data: str
+    recon_path: str
+    P_folder: str
+    f_P: str = "Intersecting_Length"          # shared with Panpan if geometry matches
+    f_recon_grid: str = "di_grid_concentration"
+    f_initial_guess: str = "di_initialized_grid_concentration"
+    f_recon_parameters: str = "di_recon_parameters.txt"
+
+    # ── Sample geometry ──
+    sample_size_n: int = 64
+    sample_height_n: int = 64
+    sample_size_cm: float = 0.01
+
+    # ── Elements (same format as Panpan) ──
+    element_symbols: str = "Ca, Sc"
+    element_lines_roi_str: str = "Ca K, Ca L, Sc K, Sc L"
+    n_line_group_each_element_str: str = "2, 2"
+
+    # ── Probe ──
+    probe_energy: float = 20.0
+    probe_intensity: float = 1.0e7
+    probe_att: bool = True
+
+    # ── Di et al.-specific optimization settings ──
+    loss_type: str = "poisson"       # "poisson" (Poisson NLL) or "ls" (MSE)
+    beta1_xrt: float = 1.0           # XRT fidelity weight in joint loss
+    tikhonov_lambda: float = 0.0     # L2 regularization on W (0 = off)
+    n_outer_epochs: int = 5          # outer bi-level iterations
+    lbfgs_n_iter: int = 20           # inner L-BFGS max function evaluations per step
+    lbfgs_history: int = 10          # L-BFGS memory size
+    minibatch_size: int = 64         # Z-rows per batch (same meaning as Panpan)
+    save_every_n_epochs: int = 1     # checkpoint every N outer epochs
+    selfAb: bool = True
+
+    # ── Initialization ──
+    ini_kind: str = "const"
+    init_const: float = 0.0
+    cont_from_check_point: bool = False
+    use_saved_initial_guess: bool = False
+
+    # ── Detector geometry ──
+    manual_det_coord: bool = False
+    det_dia_cm: float = 0.9
+    det_from_sample_cm: float = 1.6
+    det_ds_spacing_cm: float = 0.4
+    det_on_which_side: str = "positive"
+    manual_det_area: bool = False
+
+    # ── Data indexing ──
+    XRT_ratio_dataset_idx: int = 3
+    scaler_counts_us_ic_dataset_idx: int = 1
+    scaler_counts_ds_ic_dataset_idx: int = 2
+    theta_ls_dataset: str = "exchange/theta"
+    channel_names: str = "exchange/elements"
+
+    # ── Compute ──
+    gpu_id: int = 3
+
+
 class FLCorrectionParams(BaseModel):
     """Pydantic model for BNL FL (fluorescence) self-absorption correction."""
 

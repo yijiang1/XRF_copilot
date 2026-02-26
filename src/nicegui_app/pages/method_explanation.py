@@ -411,13 +411,14 @@ _VARIABLE_TABLE = """
   <span style="font-size:0.75rem;color:#64748b;align-self:center;">— user-chosen (L-curve, manual tuning)</span>
 </div>
 <div style="overflow-x:auto;">
-<table style="width:100%; border-collapse:collapse; font-size:0.82rem; min-width:750px;">
+<table style="width:100%; border-collapse:collapse; font-size:0.82rem; min-width:900px;">
   <thead>
     <tr style="background:#f1f5f9; border-bottom:2px solid #cbd5e1; position:sticky; top:0; z-index:1;">
       <th style="padding:7px 10px; text-align:left; color:#374151; white-space:nowrap;">Symbol</th>
       <th style="padding:7px 10px; text-align:left; color:#374151; white-space:nowrap;">Role</th>
       <th style="padding:7px 10px; text-align:left; color:#374151;">Meaning</th>
-      <th style="padding:7px 10px; text-align:left; color:#065f46; font-family:monospace; font-size:0.76rem;">Di et al. 2017</th>
+      <th style="padding:7px 10px; text-align:left; color:#065f46; font-family:monospace; font-size:0.76rem;">Di et al. 2017 (MATLAB)</th>
+      <th style="padding:7px 10px; text-align:left; color:#7e22ce; font-family:monospace; font-size:0.76rem;">Di et al. (Python)</th>
       <th style="padding:7px 10px; text-align:left; color:#2563eb; font-family:monospace; font-size:0.76rem;">Reconstruction (Panpan)</th>
       <th style="padding:7px 10px; text-align:left; color:#7c3aed; font-family:monospace; font-size:0.76rem;">FL Correction (BNL)</th>
     </tr>
@@ -425,23 +426,25 @@ _VARIABLE_TABLE = """
   <tbody>
 
     <!-- ══ SECTION: Unknown ══ -->
-    <tr style="background:#fca5a530;"><td colspan="6" style="padding:4px 10px; font-size:0.72rem; font-weight:700; color:#b91c1c; letter-spacing:0.05em;">UNKNOWN — THE RECONSTRUCTION TARGET</td></tr>
+    <tr style="background:#fca5a530;"><td colspan="7" style="padding:4px 10px; font-size:0.72rem; font-weight:700; color:#b91c1c; letter-spacing:0.05em;">UNKNOWN — THE RECONSTRUCTION TARGET</td></tr>
     <tr style="border-bottom:1px solid #e2e8f0; background:#fff5f5;">
       <td style="padding:6px 10px; font-family:serif; font-style:italic; white-space:nowrap;">X<sub>v,e</sub></td>
       <td style="padding:6px 8px;"><span style="background:#fee2e2;color:#b91c1c;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Unknown</span></td>
       <td style="padding:6px 10px; color:#374151;">3D elemental mass density — what the algorithm recovers. Shape: (n_element, n_z, n_y, n_x).</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">W(m₁, m₂, NumElement) — 3D array;<br>2D slice per element per angle</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">W = nn.Parameter(shape=(n_elem, H, N, N));<br>W.data.clamp_(min=0) after L-BFGS step</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">xp = nn.Parameter(grid_concentration[…])<br>shape: (n_elem, minibatch, n_y)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">img2D per slice (n_row × n_col);<br>img3D = stack of corrected slices</td>
     </tr>
 
     <!-- ══ SECTION: Measured data ══ -->
-    <tr style="background:#93c5fd30;"><td colspan="6" style="padding:4px 10px; font-size:0.72rem; font-weight:700; color:#1d4ed8; letter-spacing:0.05em;">MEASURED DATA — DETECTOR RECORDINGS (PROVIDED AS INPUT FILES)</td></tr>
+    <tr style="background:#93c5fd30;"><td colspan="7" style="padding:4px 10px; font-size:0.72rem; font-weight:700; color:#1d4ed8; letter-spacing:0.05em;">MEASURED DATA — DETECTOR RECORDINGS (PROVIDED AS INPUT FILES)</td></tr>
     <tr style="border-bottom:1px solid #e2e8f0; background:#eff6ff;">
       <td style="padding:6px 10px; font-family:serif; font-style:italic; white-space:nowrap;">D<sup>R</sup><sub>θ,p,l</sub></td>
       <td style="padding:6px 8px;"><span style="background:#dbeafe;color:#1d4ed8;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Measured data</span></td>
       <td style="padding:6px 10px; color:#374151;">XRF sinogram — measured fluorescence counts at each angle θ, probe position p, and energy channel l. Recorded by energy-dispersive detector (EDD).</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">XRF(numThetan, nTau+1, numChannel) — simulated;<br>xrfData — real measurement input to sfun_XRF_For.m</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">y1_true[:, angle_idx, :];<br>shape (n_lines, H×N) from HDF5 — same file as Panpan</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">y1_true — shape (n_lines_roi, n_theta, n_height × n_width);<br>loaded from exchange/data in HDF5</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">I_tot — 1D vector, shape (n_col × n_angles);<br>from generate_I() reading elem_ref_prj_*.tiff</td>
     </tr>
@@ -450,6 +453,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#dbeafe;color:#1d4ed8;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Measured data</span></td>
       <td style="padding:6px 10px; color:#374151;">XRT optical density — −log(I_transmitted / I₀), recorded by downstream ion chamber. Constrains total attenuation independently of element identity.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">DisR(nTau+1, numThetan) — simulated;<br>Mt(nRays,1) — real data in sfun_XTM.m</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">y2_true[angle_idx, :];<br>= −log(T), same format as Panpan</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">y2_true = −log(abs_ic);<br>from XRT_ratio_dataset_idx in scaler HDF5</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><em>not used — BNL is XRF-only</em></td>
     </tr>
@@ -458,17 +462,19 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#dbeafe;color:#1d4ed8;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Measured data</span></td>
       <td style="padding:6px 10px; color:#374151;">Reference 3D tomography volume from which the BNL H-matrix attenuation is computed. Provides the geometry for building H. Typically a conventional XRF tomo recon.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;"><em>not used</em></td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;"><em>not used</em></td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;"><em>not used — X is the direct unknown</em></td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">ref3D_tomo — shape (n_sli, n_row, n_col);<br>passed to generate_H() and generate_I()</td>
     </tr>
 
     <!-- ══ SECTION: Scan parameters ══ -->
-    <tr style="background:#fde68a30;"><td colspan="6" style="padding:4px 10px; font-size:0.72rem; font-weight:700; color:#92400e; letter-spacing:0.05em;">SCAN PARAMETERS — SET BY EXPERIMENT SETUP (REQUIRED INPUT)</td></tr>
+    <tr style="background:#fde68a30;"><td colspan="7" style="padding:4px 10px; font-size:0.72rem; font-weight:700; color:#92400e; letter-spacing:0.05em;">SCAN PARAMETERS — SET BY EXPERIMENT SETUP (REQUIRED INPUT)</td></tr>
     <tr style="border-bottom:1px solid #e2e8f0; background:#fffbeb;">
       <td style="padding:6px 10px; font-family:serif; font-style:italic; white-space:nowrap;">E<sub>p</sub></td>
       <td style="padding:6px 8px;"><span style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Scan param.</span></td>
       <td style="padding:6px 10px; color:#374151;">Probe X-ray energy in keV. Used to look up mass attenuation coefficients μ at probe energy from xraylib.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">XEng (scalar, keV);<br>indexes into xRayLib*.mat attenuation tables</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">probe_energy (float, keV);<br>same parameter name as Panpan</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">probe_energy (array, e.g. [20.0])</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">probe_energy (float, e.g. 13.577) → internal XEng</td>
     </tr>
@@ -477,6 +483,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Scan param.</span></td>
       <td style="padding:6px 10px; color:#374151;">Incident probe photon flux/intensity. Scales the absolute magnitude of the forward-modelled XRF signal. Calibrated from standard reference or set manually.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">I0 (scalar) — explicit in sfun_XTM.m;<br>folded into M response matrix for XRF</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">probe_intensity — explicit scalar;<br>same parameter name as Panpan</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">probe_cts (from calibrate_incident_probe_intensity or probe_intensity);<br>init_probe() → probe_before_attenuation_flat</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><em>implicit — absorbed into I_tot signal</em></td>
     </tr>
@@ -485,6 +492,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Scan param.</span></td>
       <td style="padding:6px 10px; color:#374151;">Set of rotation angles in degrees/radians. Defines the tomographic projections. Shuffled randomly each epoch (Panpan) to reduce correlation between updates.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">thetan(numThetan) — vector of angles (deg);<br>TransMatrix = rotation matrix per angle</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">theta_ls — (n_theta,) rad;<br>no shuffle (full-batch L-BFGS closure)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">theta_ls_dataset = "exchange/theta" → theta_ls (×π/180 → rad);<br>shuffled per epoch as theta_ls_rand</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">theta_ls_dataset = "thetas" → angle_list (×π/180 → rad);<br>passed to generate_H(), generate_I(), cal_atten_with_direction()</td>
     </tr>
@@ -493,6 +501,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Scan param.</span></td>
       <td style="padding:6px 10px; color:#374151;">Voxel side length in cm. Sets the physical scale of attenuation integrals. Computed as sample_size_cm / sample_size_n.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">dz = [dx, dy] pixel spacing (cm);<br>Lvec(j) — exact per-pixel ray-voxel intersection<br>(from IntersectionSet.m)</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">dz = sample_size_cm / sample_size_n;<br>same formula as Panpan</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">sample_size_cm / sample_size_n;<br>used in att_exponent_acc = lac_acc × Δs</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">pix = pixel_size_nm × 1e-7 cm;<br>implicit in bilinear interp weights inside H</td>
     </tr>
@@ -501,6 +510,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Scan param.</span></td>
       <td style="padding:6px 10px; color:#374151;">Volume dimensions in pixels. n_z = number of slices (height), n_y × n_x = cross-section grid. Determines memory usage and compute cost.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">m = [m₁, m₂] — 2D grid per slice;<br>nTau+1 = n detector rows; numThetan = n angles</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">sample_height_n (n_z), sample_size_n (n_y = n_x);<br>no MPI — single GPU</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">sample_height_n (n_z), sample_size_n (n_y = n_x)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">ref3D_tomo.shape = (n_sli, n_row, n_col)</td>
     </tr>
@@ -509,6 +519,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Scan param.</span></td>
       <td style="padding:6px 10px; color:#374151;">Number of detector sampling points. The finite detector area is modelled as n_d discrete point detectors to average the self-absorption path length B.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">NumSSDlet = 5 (FluorescenceDetector.m);<br>SSDknot(NumSSDlet, 2) — detector sample positions</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">n_det = P_mb.shape[0];<br>from same P HDF5 as Panpan</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">n_det = P_minibatch.shape[0];<br>P_minibatch shape (n_det, 3, dia_len_n × batch)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><em>not explicit — bilinear interp in H</em></td>
     </tr>
@@ -517,6 +528,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Scan param.</span></td>
       <td style="padding:6px 10px; color:#374151;">Detector diameter in cm (simulation). Used to compute solid angle ε and distribute n_d sampling points on the detector plane.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;"><em>not explicit</em></td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">det_dia_cm → det_solid_angle_ratio = π(d/2)² / 4π r²</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">det_dia_cm → det_solid_angle_ratio = π(d/2)² / 4π r²</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><em>not used</em></td>
     </tr>
@@ -525,6 +537,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Scan param.</span></td>
       <td style="padding:6px 10px; color:#374151;">Sample-to-detector distance in cm. Used alongside d_det to compute solid angle ε (simulation) or to place detector coordinate points (experiment).</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;"><em>not explicit</em></td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">det_from_sample_cm</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">det_from_sample_cm;<br>set_det_coord_cm for real data</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><em>not used</em></td>
     </tr>
@@ -533,17 +546,19 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Scan param.</span></td>
       <td style="padding:6px 10px; color:#374151;">Which chemical elements to reconstruct and which FL lines to include. Drives all xraylib lookups and sets n_element, n_lines.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">NumElement (scalar);<br>BindingEnergy(NumElement) — emission energies;<br>MU_e(NumElement,1,NumElement+1) — all atten coeffs</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">element_symbols → this_aN_dic = {'Ca':20,'Sc':21};<br>element_lines_roi; n_line_group_each_element</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">element_symbols → this_aN_dic (name→Z via xraylib);<br>element_lines_roi; n_line_group_each_element</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">element_symbols → elem_type list (e.g. ['Zr','La','Hf']);<br>passed to get_atten_coef(), generate_H()</td>
     </tr>
 
     <!-- ══ SECTION: Physical constants ══ -->
-    <tr style="background:#94a3b830;"><td colspan="6" style="padding:4px 10px; font-size:0.72rem; font-weight:700; color:#334155; letter-spacing:0.05em;">PHYSICAL CONSTANTS — TABULATED FROM XRAYLIB / DETECTOR SPECS (NOT FITTED)</td></tr>
+    <tr style="background:#94a3b830;"><td colspan="7" style="padding:4px 10px; font-size:0.72rem; font-weight:700; color:#334155; letter-spacing:0.05em;">PHYSICAL CONSTANTS — TABULATED FROM XRAYLIB / DETECTOR SPECS (NOT FITTED)</td></tr>
     <tr style="border-bottom:1px solid #e2e8f0;">
       <td style="padding:6px 10px; font-family:serif; font-style:italic; white-space:nowrap;">μ̃<sup>E<sub>p</sub></sup><sub>e</sub></td>
       <td style="padding:6px 8px;"><span style="background:#f1f5f9;color:#475569;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Physical const.</span></td>
       <td style="padding:6px 10px; color:#374151;">Mass attenuation coefficient of element e at probe energy E_p (cm²/g). Governs Beer-Lambert probe attenuation A through the sample.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">MU_e(e, 1, end) — last slice = beam energy;<br>from pre-loaded xRayLib*.mat tables (not xraylib)</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">probe_attCS_ls = xlib_np.CS_Total(aN_ls, probe_energy);<br>shape (n_elem,)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">probe_attCS_ls = xlib_np.CS_Total(aN_ls, probe_energy)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">cs[f'{elem}-x'] = xraylib.CS_Total(Z, XEng)</td>
     </tr>
@@ -552,6 +567,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#f1f5f9;color:#475569;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Physical const.</span></td>
       <td style="padding:6px 10px; color:#374151;">Mass attenuation coefficient of element e at fluorescence energy E_l (cm²/g). Governs self-absorption B — how strongly each element absorbs the emitted XRF photons.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">MU_e(e, 1, 1:NumElement) — first NumElement slices;<br>= attenuation at each element's FL energy</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">FL_line_attCS_ls = xlib_np.CS_Total(aN_ls, fl_energy);<br>shape (n_elem, n_lines)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">FL_line_attCS_ls = xlib_np.CS_Total(aN_ls, fl_energy);<br>shape (n_elem, n_lines) → lac tensor</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">cs[f'{ei}-{ej}'] = xraylib.CS_Total(Z_i, em_E[ej]);<br>used in cal_atten_3D → atten_xrf</td>
     </tr>
@@ -560,6 +576,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#f1f5f9;color:#475569;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Physical const.</span></td>
       <td style="padding:6px 10px; color:#374151;">XRF production cross-section × fluorescence yield × detector efficiency for line l of element e at probe energy E_p. Converts concentration × probe to emitted FL photons per unit volume.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">M(NumElement, numChannel) — response matrix;<br>maps element concentration → detected channel counts</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">detected_fl_unit_concentration;<br>from MakeFLlinesDictionary_manual() — shared with Panpan</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">detected_fl_unit_concentration — from MakeFLlinesDictionary_manual();<br>= τ × ε × Δs (ready-to-use scale factor)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><em>folded into H matrix during generate_H()</em></td>
     </tr>
@@ -568,6 +585,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#f1f5f9;color:#475569;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Physical const.</span></td>
       <td style="padding:6px 10px; color:#374151;">Full XRF energy spectrum model for element e — xraylib emission peaks convolved with the Gaussian detector energy response function. Unique to Di et al. 2017; allows deconvolution of overlapping lines directly.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">M_raw(NumElement, numChannel) — Gaussian-blurred spectrum;<br>M_decom — decomposed peaks;<br>σ_det from UnitSpectrumSherman_real.m</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;"><em>not modelled — per-line τ only;<br>same as Panpan (no full spectrum)</em></td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;"><em>not modelled — per-line τ only;<br>element_lines_roi picks discrete channels</em></td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><em>not modelled</em></td>
     </tr>
@@ -576,6 +594,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#f1f5f9;color:#475569;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Physical const.</span></td>
       <td style="padding:6px 10px; color:#374151;">Total detector efficiency = solid angle fraction × quantum efficiency. Scales forward-modelled XRF to detected counts. For real data, absorbed into probe calibration; for simulation data, computed from detector geometry.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;"><em>folded into M_e normalization</em></td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">det_solid_angle_ratio = π(d/2)² / 4π r²;<br>signal_attenuation_factor = 1.0</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">det_solid_angle_ratio = π(d/2)² / 4π r²;<br>signal_attenuation_factor = 1.0 (simulation)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><em>folded into I_tot signal</em></td>
     </tr>
@@ -584,17 +603,19 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#f1f5f9;color:#475569;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Physical const.</span></td>
       <td style="padding:6px 10px; color:#374151;">Fluorescence line energies for each element (K, L, M shells). Used to look up μ at FL energy, compute τ, and identify which detector channels correspond to each element.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">E_l (emission energies in M_e)</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">fl_all_lines_dic["fl_energy"];<br>from MakeFLlinesDictionary_manual() — shared with Panpan</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">fl_all_lines_dic["fl_energy"];<br>from MakeFLlinesDictionary_manual()</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">em_E dict (keV) — from load_param();<br>em_eng list</td>
     </tr>
 
     <!-- ══ SECTION: Derived quantities ══ -->
-    <tr style="background:#6ee7b730;"><td colspan="6" style="padding:4px 10px; font-size:0.72rem; font-weight:700; color:#065f46; letter-spacing:0.05em;">DERIVED QUANTITIES — COMPUTED FROM X DURING FORWARD PASS (RE-EVALUATED EACH ITERATION OR OUTER STEP)</td></tr>
+    <tr style="background:#6ee7b730;"><td colspan="7" style="padding:4px 10px; font-size:0.72rem; font-weight:700; color:#065f46; letter-spacing:0.05em;">DERIVED QUANTITIES — COMPUTED FROM X DURING FORWARD PASS (RE-EVALUATED EACH ITERATION OR OUTER STEP)</td></tr>
     <tr style="border-bottom:1px solid #e2e8f0; background:#f0fdf4;">
       <td style="padding:6px 10px; font-family:serif; font-style:italic; white-space:nowrap;">A<sup>θ,p</sup><sub>v</sub></td>
       <td style="padding:6px 8px;"><span style="background:#d1fae5;color:#065f46;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Derived f(X)</span></td>
       <td style="padding:6px 10px; color:#374151;">Probe attenuation reaching voxel v at angle θ, position p. Beer-Lambert cumulative product over all upstream voxels U<sup>v</sup><sub>θ,p</sub>. Eq. 5.6 / Eq. 6.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">InTens(numThetan, nTau+1, prod(m)) — pre-computed;<br>= exp(-Σ upstream L×MU_e) stored in SelfInd{n,i,v}{1,3};<br>re-used across gradient evaluations</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">InTens_mb = exp(−cumsum(W_rot × probe_attCS × dz));<br>differentiable through W (gradient flows)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">att_exponent_acc_map — cumsum of lac_single × Δs;<br>→ attenuation_map_theta_flat = exp(−acc)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">x_ray_atten — from cal_atten_3D();<br>atten3D[elem] per angle, folded into H rows</td>
     </tr>
@@ -603,6 +624,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#d1fae5;color:#065f46;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Derived f(X)</span></td>
       <td style="padding:6px 10px; color:#374151;">Linear attenuation coefficient map — product of μ̃ × X for each voxel. Intermediate used to compute both A (probe attenuation) and B (self-absorption). Frozen per outer iteration.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;"><em>implicit (μ × W product in Eqs. 6–7)</em></td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">lac_fixed = W.detach() × FL_line_attCS_ls;<br>frozen per outer epoch (no gradient through SA)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">lac = X_ap_rot.view(…) × FL_line_attCS_ls.view(…);<br>shape (n_elem, n_lines, n_voxel_batch, n_voxel)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">atten_fl from cal_atten_3D() — angle-by-angle;<br>μ × C integrated along FL path per voxel</td>
     </tr>
@@ -611,6 +633,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#d1fae5;color:#065f46;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Derived f(X)</span></td>
       <td style="padding:6px 10px; color:#374151;">Self-absorption survival probability for FL photons from voxel v to detector. exp(−Σ μ̃<sub>l</sub> × X × path). Averaged over n_d detector points. Eq. 5.9. Frozen per outer iteration in Di/Panpan.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">OutTens(numThetan,nTau+1,prod(m),NumElement) — pre-computed;<br>= (1/NumSSDlet) Σ_d exp(-Σ downstream L×MU_e);<br>from SelfInd{n,i,v}{2,4} per detector-let d</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">SA_mb = _compute_SA_mb(lac_fixed, P_mb);<br>frozen per outer epoch (W.detach())</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">SA_theta — init_SA_theta();<br>mean(exp(−sum(att_exponent_voxel_sum)), axis=n_det)<br>shape (n_lines, n_voxel_batch)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">atten_xrf = exp(−xrf_atten × pix);<br>encoded as the attenuation weight in H rows</td>
     </tr>
@@ -619,6 +642,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#d1fae5;color:#065f46;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Derived f(X)</span></td>
       <td style="padding:6px 10px; color:#374151;">Path length through voxel v' on the FL beam from source voxel v to detector point d. Pre-computed geometry array, independent of X once rotation is set. Used in B calculation.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">SelfInd{n,i,v}{2}{d} pixel indices;<br>{4}{d} path lengths Lvec(j);<br>pre-computed by IntersectionSet.m</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">P_mb from same HDF5 as Panpan (shared file);<br>shape (n_det, 3, dia_len_n × batch)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">P_minibatch = P_array[…] from HDF5 file;<br>shape (n_det, 3, dia_len_n × batch_size × sample_n);<br>columns: [voxel_idx, element_idx, path_length]</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><em>not stored explicitly — folded into H via bilinear interp weights (T matrix)</em></td>
     </tr>
@@ -627,6 +651,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#d1fae5;color:#065f46;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Derived f(X)</span></td>
       <td style="padding:6px 10px; color:#374151;">Predicted XRF signal — output of the forward model. Sum over all voxels in the beam path of emission × self-absorption × probe × efficiency. Compared to D<sup>R</sup> in the loss. Eq. 5.10.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">XRFc = InTens .* OutTens .* MTmp;<br>summed in sfun_XRF_For.m lines 104–106;<br>shape (numThetan×(nTau+1), numChannel)</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">xrf_pred from _di_forward_mb();<br>shape (n_lines, mb_size, N)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">y1_hat = fl_signal_SA_theta × det_solid_angle_ratio × signal_attenuation_factor;<br>from PPM.forward() output1</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">H_tot @ C_flat (during mlem_matrix Pf = p @ A_old)</td>
     </tr>
@@ -635,6 +660,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#d1fae5;color:#065f46;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Derived f(X)</span></td>
       <td style="padding:6px 10px; color:#374151;">Predicted XRT optical density — cumulative sum of μ × X × Δs along the probe path. Compared to D<sup>T</sup> in the joint loss. Eq. 5.5.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">Rdis = L × MU_XTM (cumsum in sfun_XTM.m);<br>L = sum of Lvec path-length segments;<br>shape (nTau+1, numThetan)</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">xrt_pred = att_exponent_acc_map[:, −1];<br>from _di_forward_mb()</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">y2_hat = transmission_att_exponent_theta;<br>= att_exponent_acc_map[:, −1] from PPM.forward()</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><em>not used — XRT term absent in BNL</em></td>
     </tr>
@@ -643,6 +669,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#d1fae5;color:#065f46;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Derived f(X)</span></td>
       <td style="padding:6px 10px; color:#374151;">Attenuated Radon system matrix — encodes geometry, rotation, and self-absorption in one dense matrix. Rows = detector pixels × angles; cols = voxels. Built once from ref3D_tomo using bilinear interpolation + attenuation weights.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;"><em>implicit via SelfInd{n,i,v} cell arrays;<br>GlobalInd{n,i} gives ray–voxel pairs;<br>InTens/OutTens encode pre-computed attenuation</em></td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;"><em>implicit — no explicit H matrix;<br>same physics as PPM.forward() with frozen SA</em></td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;"><em>implicit in PPM.forward() — no explicit H matrix</em></td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">H_tot = generate_H(elem, ref3D_tomo, sli, angle_list);<br>shape (n_col × n_angles, n_row × n_col);<br>stored per slice per element via _generate_H_jit</td>
     </tr>
@@ -651,17 +678,19 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#d1fae5;color:#065f46;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Derived f(X)</span></td>
       <td style="padding:6px 10px; color:#374151;">Objective function — measures misfit between predicted and measured data. Minimised by the optimizer (Di/Panpan) or implicitly driven to zero by MLEM (BNL).</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">f scalar in sfun_XRF_For.m / sfun_XTM.m;<br>Poisson LL (XRF default) or LS;<br>φ(W) = Poisson LL(XRF) + β₁·Poisson LL(XRT) Eq. 8</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">loss = _poisson_nll(xrf_pred, y1_obs)<br>+ beta1_xrt × _mse(xrt_pred, y2_obs);<br>accumulated in closure() over all angles × batches</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">loss = XRF_loss + b1 × XRT_loss;<br>XRF_loss = MSELoss(y1_hat, y1_true);<br>XRT_loss = MSELoss(y2_hat, b2 × y2_true)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><em>implicit — MLEM converges when H@C ≈ I<br>(no explicit scalar loss computed)</em></td>
     </tr>
 
     <!-- ══ SECTION: Algorithm state ══ -->
-    <tr style="background:#bfdbfe30;"><td colspan="6" style="padding:4px 10px; font-size:0.72rem; font-weight:700; color:#1e40af; letter-spacing:0.05em;">ALGORITHM STATE — INTERMEDIATE VARIABLES UPDATED DURING OPTIMIZATION</td></tr>
+    <tr style="background:#bfdbfe30;"><td colspan="7" style="padding:4px 10px; font-size:0.72rem; font-weight:700; color:#1e40af; letter-spacing:0.05em;">ALGORITHM STATE — INTERMEDIATE VARIABLES UPDATED DURING OPTIMIZATION</td></tr>
     <tr style="border-bottom:1px solid #e2e8f0; background:#f0f9ff;">
       <td style="padding:6px 10px; font-family:serif; font-style:italic; white-space:nowrap;">X<sup>(n)</sup></td>
       <td style="padding:6px 8px;"><span style="background:#dbeafe;color:#1d4ed8;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Measured data</span></td>
       <td style="padding:6px 10px; color:#374151;">Current iterate of the reconstruction — X at iteration n. Updated by optimizer step (Panpan/Di) or MLEM multiplicative update (BNL). Written to checkpoint every N epochs.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">W (prod(m)×NumElement) updated by fminunc<br>via sfun_XRF_For.m / sfun_Tensor_Joint.m;<br>W<sup>i</sup> frozen each outer iter during TN inner solve</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">W updated by optimizer.step(closure);<br>L-BFGS with strong Wolfe line search</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">X — read/written to f_recon_grid.h5 each angle;<br>updated_minibatch = model.xp.detach()</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">A_old / A_new in mlem_matrix();<br>img2D → img_cor (corrected 2D slice)</td>
     </tr>
@@ -670,17 +699,19 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#d1fae5;color:#065f46;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Derived f(X)</span></td>
       <td style="padding:6px 10px; color:#374151;">Gradient of loss w.r.t. X — used by Adam to update X. In Panpan computed automatically by PyTorch autograd through the PPM differentiable forward model.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">g from sfun_XRF_For.m — analytical 3-term;<br>g = g_att + g_sa + g_direct;<br>passed to fminunc (TN Algorithm 2)</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">W.grad via loss.backward();<br>SA frozen → g_sa (Term 3) ≈ 0</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">loss.backward() — PyTorch autograd;<br>model.xp.grad accumulated</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><em>not used — MLEM is gradient-free;<br>update uses ratio H.T @ (I/Hc) / H.T @ 1</em></td>
     </tr>
 
     <!-- ══ SECTION: Hyperparameters ══ -->
-    <tr style="background:#c4b5fd30;"><td colspan="6" style="padding:4px 10px; font-size:0.72rem; font-weight:700; color:#5b21b6; letter-spacing:0.05em;">HYPERPARAMETERS — USER-CHOSEN TUNING PARAMETERS (NOT PHYSICS-DERIVED)</td></tr>
+    <tr style="background:#c4b5fd30;"><td colspan="7" style="padding:4px 10px; font-size:0.72rem; font-weight:700; color:#5b21b6; letter-spacing:0.05em;">HYPERPARAMETERS — USER-CHOSEN TUNING PARAMETERS (NOT PHYSICS-DERIVED)</td></tr>
     <tr style="border-bottom:1px solid #e2e8f0; background:#faf5ff;">
       <td style="padding:6px 10px; font-family:serif; font-style:italic; white-space:nowrap;">β<sub>1</sub> / λ</td>
       <td style="padding:6px 8px;"><span style="background:#ede9fe;color:#5b21b6;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Hyperparameter</span></td>
       <td style="padding:6px 10px; color:#374151;">XRT regularization weight — scales the XRT fidelity term relative to XRF. Breaks the self-absorption ambiguity. Di et al. use L-curve (optimal ≈ 1); Panpan sets manually.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">Beta (XTM weight) / TempBeta (XRF weight);<br>SigMa_XRF, SigMa_XTM in opt.m;<br>chosen by L-curve (typically 1), Eq. 8</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">beta1_xrt (default 1.0);<br>weight for XRT MSE term in closure()</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">b1 — loss = XRF_loss + b1 × XRT_loss;<br>Eq. 5.12</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><em>not applicable — no XRT term</em></td>
     </tr>
@@ -689,6 +720,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#ede9fe;color:#5b21b6;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Hyperparameter</span></td>
       <td style="padding:6px 10px; color:#374151;">Data magnitude normalisation factor — rescales XRT data to be comparable to XRF counts. Di et al.: β₂=100 fixed; Panpan: b2 multiplies y2_true so XRT_loss matches XRF_loss magnitude.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;"><em>not applicable — XRF/XRT balanced via<br>SigMa_XRF / SigMa_XTM normalization;<br>no explicit β₂ in MATLAB code</em></td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;"><em>not applicable — SA frozen per outer epoch<br>eliminates Term 3 (g_sa) gradient</em></td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">b2 — XRT_loss = MSE(y2_hat, b2 × y2_true)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><em>not applicable</em></td>
     </tr>
@@ -697,6 +729,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#ede9fe;color:#5b21b6;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Hyperparameter</span></td>
       <td style="padding:6px 10px; color:#374151;">Learning rate — step size for each Adam gradient update. Controls convergence speed vs. stability. Chosen by trial.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;"><em>via fminunc built-in backtracking line search;<br>no user-set α — TN inner solver self-adapts;<br>MaxIter set per-call in optXRF.m</em></td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">L-BFGS strong Wolfe line search;<br>LBFGS(lr=1.0, line_search_fn='strong_wolfe')</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">lr — tc.optim.Adam(model.parameters(), lr=lr)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><em>not applicable — MLEM is step-size-free</em></td>
     </tr>
@@ -705,6 +738,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#ede9fe;color:#5b21b6;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Hyperparameter</span></td>
       <td style="padding:6px 10px; color:#374151;">Number of full passes over all angles. Panpan: ~60–80 epochs; Di et al.: ~3 outer iterations (much cheaper per outer step). BNL: n_iter MLEM steps (typically 20–50).</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">MaxIter in fminunc options (inner TN);<br>outer loop counter in opt.m / optXRF.m;<br>n_outer ≈ 3 outer iters (Algorithm 1)</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">n_outer_epochs × lbfgs_n_iter inner steps;<br>save_every_n_epochs for checkpoints</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">n_epochs — save_every_n_epochs for checkpointing</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">n_iter — mlem_matrix(img2D, H, I, n_iter=n_iter)</td>
     </tr>
@@ -713,6 +747,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#ede9fe;color:#5b21b6;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Hyperparameter</span></td>
       <td style="padding:6px 10px; color:#374151;">Number of 2D horizontal slabs updated per MPI rank per angle step. Larger = more GPU memory but fewer H5 writes. Trade-off between parallelism and I/O.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;"><em>not explicit — full volume per outer iteration</em></td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">minibatch_size (P-matrix batches from HDF5);<br>gradient accumulated over all batches before step</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">minibatch_size (rows per rank per angle);<br>n_batch = (n_z × n_x) / (n_ranks × minibatch_size)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><em>processed slice-by-slice (sli index);<br>parallelism via multiprocessing Pool</em></td>
     </tr>
@@ -721,6 +756,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#ede9fe;color:#5b21b6;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Hyperparameter</span></td>
       <td style="padding:6px 10px; color:#374151;">Initial guess for the reconstruction. Can be constant, random, or loaded from a prior run. Affects convergence speed; BNL uses a flat init (MLEM guarantees non-negativity).</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">W0 = zeros(prod(m), NumElement);<br>or loaded from checkpoint file;<br>set in XRF_XTM_Tensor.m before opt.m call</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">initialize_guess_3d(ini_kind, init_const);<br>cont_from_check_point = True to resume</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">ini_kind = 'const'/'rand'/'randn';<br>init_const, ini_rand_amp;<br>initialize_guess_3d()</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">img2D — initial 2D slice passed to mlem_matrix();<br>often uniform or from standard FBP recon</td>
     </tr>
