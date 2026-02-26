@@ -451,10 +451,22 @@ def create_fl_parameter_form(state: FLState) -> tuple[dict, list]:
                 ).classes("w-full font-mono")
                 el.tooltip(
                     "HDF5 file containing XRF data ('data' dataset: "
-                    "[n_channels, n_angles, height, width]), 'thetas' dataset"
+                    "[n_channels, n_angles, height, width])"
                 )
                 input_elements["fn_data"] = el
                 valid_params.append("fn_data")
+
+                el = ui.input(
+                    "Angle Dataset Key",
+                    value="thetas",
+                    placeholder="thetas",
+                ).classes("w-full font-mono")
+                el.tooltip(
+                    "HDF5 dataset key containing rotation angles in degrees — "
+                    "e.g. 'thetas' (BNL format) or 'exchange/theta' (Panpan format)"
+                )
+                input_elements["theta_ls_dataset"] = el
+                valid_params.append("theta_ls_dataset")
 
                 # ── HDF5 inspector ────────────────────────────────────────────
                 # _crop_cb_ref lets the inspector fire on_crop_changed even though
@@ -489,8 +501,8 @@ def create_fl_parameter_form(state: FLState) -> tuple[dict, list]:
                         format="%.3f",
                     ).classes("flex-1")
                     el.tooltip("Incident beam energy in keV — used to compute fluorescence cross-sections")
-                    input_elements["x_ray_energy"] = el
-                    valid_params.append("x_ray_energy")
+                    input_elements["probe_energy"] = el
+                    valid_params.append("probe_energy")
 
                     el = ui.number(
                         "Pixel Size (nm)", value=500, step=10, min=1,

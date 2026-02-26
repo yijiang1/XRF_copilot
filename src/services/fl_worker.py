@@ -90,7 +90,8 @@ def fl_correction_worker_process(params: dict, status_queue, stop_event):
         _put_log(f"Loading XRF data from {fn_data}")
         with h5py.File(fn_data, "r") as f:
             img_all    = np.array(f["data"])
-            angle_list = np.array(f["thetas"])
+            theta_key  = params.get("theta_ls_dataset", "thetas")
+            angle_list = np.array(f[theta_key])
 
         s = img_all.shape
         img_all = img_all[:, :, : s[2] // b * b, : s[3] // b * b]
@@ -101,7 +102,7 @@ def fl_correction_worker_process(params: dict, status_queue, stop_event):
         # ── Step 2: Build param dict from GUI inputs ───────────────────────────
         _check_stop()
         import xraylib
-        XEng       = float(params.get("x_ray_energy", 13.577))
+        XEng       = float(params.get("probe_energy", 13.577))
         pix_nm     = float(params.get("pixel_size_nm", 500))
         pix        = float(f"{pix_nm * 1e-7:.1e}")  # nm → cm, same rounding as load_param
         elem_type  = [e.strip() for e in params.get("element_type", "Ti, Cr, Fe, Ni, Ba").split(",") if e.strip()]

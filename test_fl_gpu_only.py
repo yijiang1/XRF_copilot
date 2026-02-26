@@ -11,7 +11,7 @@ import h5py
 import glob
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-REF_ROOT = "/mnt/micdata3/XRF_tomography/FL_correction/FL_correction_new"
+REF_ROOT = "/mnt/micdata3/XRF_tomography/testing_ground/data/fl_correction"
 sys.path.insert(0, PROJECT_ROOT)
 
 # ── Find existing temp dir ────────────────────────────────────────────────────

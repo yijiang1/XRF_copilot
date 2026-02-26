@@ -112,13 +112,14 @@ class FLCorrectionParams(BaseModel):
     fn_root: str          # Working directory (contains data, param, output folders)
     fn_data: str = "everything.h5"    # HDF5 data file (relative to fn_root or abs)
     fn_param: str = "param.txt"       # Parameter file (relative to fn_root or abs)
+    theta_ls_dataset: str = "thetas"  # HDF5 dataset key containing rotation angles (degrees)
 
     # ── Sample physics (from GUI element tiles) ──
     element_type: str = ""            # Comma-sep element symbols, e.g. "Ti, Fe, Cu"
     xrf_shell: str = ""              # Comma-sep K/L shell per element, e.g. "K, K, L"
     density: str = ""                # Comma-sep compound densities (g/cm³), e.g. "4.506, 7.874"
     emission_energy: str = ""        # Comma-sep Kα/Lα energies (keV), e.g. "4.509, 6.399"
-    x_ray_energy: float = 13.577     # Incident beam energy (keV)
+    probe_energy: float = 13.577      # Incident beam energy (keV)
     pixel_size_nm: float = 500.0     # Voxel size (nm)
 
     # ── Data selection ──

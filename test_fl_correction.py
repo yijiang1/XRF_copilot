@@ -19,7 +19,8 @@ import numpy as np
 
 # ── Setup paths ───────────────────────────────────────────────────────────────
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-REF_ROOT = "/mnt/micdata3/XRF_tomography/FL_correction/FL_correction_new"
+REF_ROOT    = "/mnt/micdata3/XRF_tomography/testing_ground/data/fl_correction"
+RESULT_DIR  = "/mnt/micdata3/XRF_tomography/testing_ground/results/fl_correction"
 sys.path.insert(0, PROJECT_ROOT)
 
 print("=" * 60)
@@ -142,10 +143,10 @@ print(f"    mask3D loaded: dict with {len(mask3D)} radial lengths (7..{max(mask3
 
 # ── Step 8: Run ONE correction iteration with our bundled code ────────────────
 print("\n[8] Running 1 correction iteration with bundled src.fl_correction...")
-import tempfile
+os.makedirs(RESULT_DIR, exist_ok=True)
 
-# Use a temp output directory
-tmp_out = tempfile.mkdtemp(prefix="xrf_fl_test_")
+# Save results to testing_ground/results/fl_correction/
+tmp_out      = RESULT_DIR
 fpath_save   = os.path.join(tmp_out, "recon")
 fsave_iter_1 = os.path.join(tmp_out, "Angle_prj_01")
 os.makedirs(fpath_save, exist_ok=True)
@@ -204,4 +205,4 @@ for i, ele in enumerate(elem_type):
           f"rel_diff={rel_diff:.2%}  corr={corr:.6f}")
 
 print("\n[✓] Test complete!")
-print(f"    Temp output at: {tmp_out}")
+print(f"    Results saved to: {tmp_out}")

@@ -6,6 +6,7 @@ from .config import HOST, PORT, BACKEND_API_KEY
 from .pages.simulation import create_simulation_page
 from .pages.reconstruction import create_reconstruction_page
 from .pages.fl_correction import create_fl_correction_page
+from .pages.method_explanation import create_method_explanation_page
 
 # Runtime API key (set via CLI, overrides .env)
 _runtime_api_key: str = ""
@@ -130,6 +131,7 @@ def _create_nav_header(active_page: str, key: str):
             ("Simulation", "science", "simulation", f"/{key}"),
             ("Reconstruction (Panpan)", "auto_fix_high", "reconstruction", f"/{key}/reconstruction"),
             ("Reconstruction (BNL)", "biotech", "fl_correction", f"/{key}/fl-correction"),
+            ("Method", "menu_book", "method_explanation", f"/{key}/method-bnl"),
         ]
         for label, icon, page_id, path in nav_items:
             btn = ui.button(
@@ -181,6 +183,17 @@ def fl_correction(key: str):
     ui.query("body").classes("app-body")
     _create_nav_header("fl_correction", key)
     create_fl_correction_page(api_key=_get_api_key())
+
+
+@ui.page("/{key}/method-bnl", title="Method Explanation (BNL)", favicon=_FAVICON)
+def method_explanation(key: str):
+    """Step-by-step explanation of the BNL self-absorption correction algorithm."""
+    if key != _get_api_key():
+        _unauthorized()
+        return
+    ui.query("body").classes("app-body")
+    _create_nav_header("method_explanation", key)
+    create_method_explanation_page()
 
 
 def run():
