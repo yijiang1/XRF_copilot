@@ -118,7 +118,7 @@ def simulate_XRF_maps(params, progress_callback=None):
 
     detected_fl_unit_concentration = tc.as_tensor(fl_all_lines_dic["detected_fl_unit_concentration"]).float().to(dev)
 
-    mass_attenuation_cross_section_FL = tc.as_tensor(
+    mu_fl = tc.as_tensor(
         xlib_np.CS_Total(
             np.array(list(atomic_numbers.values())),
             fl_all_lines_dic["fl_energy"]
@@ -140,7 +140,7 @@ def simulate_XRF_maps(params, progress_callback=None):
     ]).astype("S5")
     scaler_names = np.array(["place_holder", "us_dc", "ds_ic", "abs_ic"]).astype("S12")
 
-    probe_attCS_ls = tc.as_tensor(xlib_np.CS_Total(np.array(list(atomic_numbers.values())), np.array([probe_energy])).flatten()).to(dev)
+    mu_probe = tc.as_tensor(xlib_np.CS_Total(np.array(list(atomic_numbers.values())), np.array([probe_energy])).flatten()).to(dev)
 
     #### OPTION B: estimate the solid angle by the flat surface
     det_solid_angle_ratio = (np.pi * (det_size_cm/2)**2) / (4*np.pi * det_from_sample_cm**2)
@@ -226,7 +226,7 @@ def simulate_XRF_maps(params, progress_callback=None):
             tifffile.imwrite(f'{output_dir}/X_{elements[i]}_rot' + '_'.join([f"{angle:.1f}".replace('.', 'p') for angle in rotation_angles])+ '.tiff', X[i].cpu().numpy())
 
     if model_self_absorption == True:
-        lac = X.view(n_element, 1, 1, n_voxel) * mass_attenuation_cross_section_FL.view(n_element, n_lines, 1, 1)
+        lac = X.view(n_element, 1, 1, n_voxel) * mu_fl.view(n_element, n_lines, 1, 1)
         lac = lac.expand(-1, -1, n_voxel_batch, -1).float()
     else:
         lac = 0.
@@ -283,7 +283,7 @@ def simulate_XRF_maps(params, progress_callback=None):
                 print(f"X shape: {X.shape}")
                 print(f"n_element: {n_element}")
                 print(f"n_lines: {n_lines}")
-                print(f"mass_attenuation_cross_section_FL shape: {mass_attenuation_cross_section_FL.shape}")
+                print(f"mu_fl shape: {mu_fl.shape}")
                 print(f"detected_fl_unit_concentration shape: {detected_fl_unit_concentration.shape}")
                 print(f"n_line_group_each_element: {n_line_group_each_element}")
                 print(f"sample_height_n: {sample_height_n}")
@@ -291,7 +291,7 @@ def simulate_XRF_maps(params, progress_callback=None):
                 print(f"sample_size_n: {sample_size_n}")
 
             devices = set()
-            for tensor in [X, mass_attenuation_cross_section_FL, detected_fl_unit_concentration]:
+            for tensor in [X, mu_fl, detected_fl_unit_concentration]:
                 if isinstance(tensor, tc.Tensor):
                     devices.add(tensor.device)
             if debug:
@@ -304,10 +304,10 @@ def simulate_XRF_maps(params, progress_callback=None):
                 if model_self_absorption:
                     if debug:
                         print(f"Attempting with self-absorption for batch {m+1}")
-                    model = PPM(dev, model_self_absorption, lac, X, p, n_element, n_lines, mass_attenuation_cross_section_FL,
+                    model = PPM(dev, model_self_absorption, lac, X, p, n_element, n_lines, mu_fl,
                                 detected_fl_unit_concentration, n_line_group_each_element,
                                 sample_height_n, batch_size, sample_size_n, sample_size_cm,
-                                probe_energy, incident_probe_intensity, model_probe_attenuation, probe_attCS_ls,
+                                probe_energy, incident_probe_intensity, model_probe_attenuation, mu_probe,
                                 0, signal_attenuation_factor,
                                 n_det, P_minibatch, det_size_cm, det_from_sample_cm, det_solid_angle_ratio)
 
@@ -315,10 +315,10 @@ def simulate_XRF_maps(params, progress_callback=None):
                     y1_hat, y2_hat = model()
                     tc.cuda.synchronize()
                 else:
-                    model = PPM(dev, model_self_absorption, lac, X, p, n_element, n_lines, mass_attenuation_cross_section_FL,
+                    model = PPM(dev, model_self_absorption, lac, X, p, n_element, n_lines, mu_fl,
                                 detected_fl_unit_concentration, n_line_group_each_element,
                                 sample_height_n, batch_size, sample_size_n, sample_size_cm,
-                                probe_energy, incident_probe_intensity, model_probe_attenuation, probe_attCS_ls,
+                                probe_energy, incident_probe_intensity, model_probe_attenuation, mu_probe,
                                 0, signal_attenuation_factor,
                                 n_det, P_minibatch, det_size_cm, det_from_sample_cm, det_solid_angle_ratio)
 

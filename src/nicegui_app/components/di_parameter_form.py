@@ -2,6 +2,7 @@
 
 from nicegui import ui
 from ..state import ReconState
+from .h5_inspector import create_h5_inspector
 
 
 def create_di_parameter_form(state: ReconState) -> tuple[dict, list]:
@@ -21,37 +22,38 @@ def create_di_parameter_form(state: ReconState) -> tuple[dict, list]:
         with ui.expansion("Data & Paths", icon="folder_open").classes("w-full"):
             with ui.column().classes("w-full gap-2 p-2"):
                 el = ui.input(
-                    "Data Directory",
+                    "Working Directory",
                     value="",
                     placeholder="/path/to/data/",
                 ).classes("w-full font-mono")
-                el.tooltip("Directory containing the HDF5 data files")
-                input_elements["data_path"] = el
-                valid_params.append("data_path")
-
-                with ui.row().classes("w-full gap-4"):
-                    el = ui.input(
-                        "XRF Data File", value="", placeholder="xrf_data.h5"
-                    ).classes("flex-1 font-mono")
-                    el.tooltip("Filename of the XRF measurement HDF5 file (inside data_path)")
-                    input_elements["f_XRF_data"] = el
-                    valid_params.append("f_XRF_data")
-
-                    el = ui.input(
-                        "XRT Data File", value="", placeholder="xrt_data.h5"
-                    ).classes("flex-1 font-mono")
-                    el.tooltip("Filename of the XRT transmission HDF5 file (inside data_path)")
-                    input_elements["f_XRT_data"] = el
-                    valid_params.append("f_XRT_data")
+                el.tooltip("Directory containing the HDF5 data file")
+                input_elements["fn_root"] = el
+                valid_params.append("fn_root")
 
                 el = ui.input(
-                    "Reconstruction Output Directory",
-                    value="",
-                    placeholder="/path/to/recon/",
+                    "HDF5 Data File",
+                    value="data.h5",
+                    placeholder="data.h5",
                 ).classes("w-full font-mono")
-                el.tooltip("Directory where reconstruction results will be saved")
-                input_elements["recon_path"] = el
-                valid_params.append("recon_path")
+                el.tooltip(
+                    "Single HDF5 file (APS exchange format). Must contain:\n"
+                    "  exchange/data[n_channels, n_angles, H, W] — XRF + scaler channels\n"
+                    "  exchange/elements[n_channels] — channel names\n"
+                    "  exchange/theta[n_angles] — rotation angles (degrees)"
+                )
+                input_elements["fn_data"] = el
+                valid_params.append("fn_data")
+
+                # ── H5 Inspector ─────────────────────────────────────
+                create_h5_inspector(
+                    fn_root_el=input_elements["fn_root"],
+                    fn_data_el=input_elements["fn_data"],
+                    data_key="exchange/data",
+                    elements_key="exchange/elements",
+                    thetas_key="exchange/theta",
+                    on_elements_loaded=None,  # no auto-fill for Di
+                    on_crop_changed=None,     # no crop tool for Di
+                )
 
                 with ui.row().classes("w-full gap-4"):
                     el = ui.input(

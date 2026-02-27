@@ -11,9 +11,9 @@ tc.set_default_dtype(tc.float32)  # Set the default tensor dtype
 class PPM(nn.Module):
  
     def __init__(self, dev, model_self_absorption, lac, grid_concentration, p, n_element, n_lines, 
-                 mass_attenuation_cross_section_FL, detected_fl_unit_concentration, n_line_group_each_element,
+                 mu_fl, detected_fl_unit_concentration, n_line_group_each_element,
                  sample_height_n, minibatch_size, sample_size_n, sample_size_cm,          
-                 probe_energy, incident_probe_intensity, model_probe_attenuation, probe_attCS_ls,
+                 probe_energy, incident_probe_intensity, model_probe_attenuation, mu_probe,
                  theta, signal_attenuation_factor,
                  n_det, P_minibatch, det_dia_cm, det_from_sample_cm, det_solid_angle_ratio):
         """
@@ -28,7 +28,7 @@ class PPM(nn.Module):
         self.n_element = n_element
         self.n_lines = n_lines
 
-        self.mass_attenuation_cross_section_FL = mass_attenuation_cross_section_FL.to(self.dev)
+        self.mu_fl = mu_fl.to(self.dev)
         self.detected_fl_unit_concentration = detected_fl_unit_concentration.to(self.dev)
         self.n_line_group_each_element = n_line_group_each_element.to(self.dev)
         
@@ -44,7 +44,7 @@ class PPM(nn.Module):
         self.probe_energy = probe_energy  
         self.incident_probe_intensity = incident_probe_intensity
         self.model_probe_attenuation = model_probe_attenuation
-        self.probe_attCS_ls =  probe_attCS_ls # the mass attenuation cross section of probe (2nd row in Table 5.3.1) as a list 
+        self.mu_probe =  mu_probe # the mass attenuation cross section of probe (2nd row in Table 5.3.1) as a list 
         self.probe_before_attenuation_flat = self.init_probe()        
               
         self.theta = theta
@@ -118,7 +118,7 @@ class PPM(nn.Module):
         for j in range(self.n_element):
             ## step 1: calculate the attenuation exponent at each voxel
             if self.model_probe_attenuation == True:
-                lac_single = concentration_map_minibatch_rot[j] * self.probe_attCS_ls[j]
+                lac_single = concentration_map_minibatch_rot[j] * self.mu_probe[j]
                 lac_acc = tc.cumsum(lac_single, axis=1) # dim = (minibatch_size, sample_size_n)
                 lac_acc = tc.cat((tc.zeros((self.minibatch_size, 1), device=self.dev), lac_acc), dim = 1) # dim = (minibatch_size, sample_size_n + 1)
                 att_exponent_acc = lac_acc * (self.sample_size_cm / self.sample_size_n)    

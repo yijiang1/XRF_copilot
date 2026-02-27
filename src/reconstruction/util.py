@@ -128,17 +128,17 @@ def attenuation_3d(src_path, theta_st, theta_end, n_theta, sample_height_n, samp
     """    
     
     n_element = len(this_aN_dic)
-    theta_ls = - tc.linspace(theta_st, theta_end, n_theta + 1)[:-1]
+    rot_angles = - tc.linspace(theta_st, theta_end, n_theta + 1)[:-1]
     grid_concentration = tc.tensor(np.load(src_path)).float().to(dev)
     aN_ls = np.array(list(this_aN_dic.values()))
-    probe_attCS_ls = tc.tensor(xlib_np.CS_Total(aN_ls, probe_energy).flatten()).float().to(dev)
+    mu_probe = tc.tensor(xlib_np.CS_Total(aN_ls, probe_energy).flatten()).float().to(dev)
     
-    att_exponent_acc_map = tc.zeros((len(theta_ls), sample_height_n, sample_size_n, sample_size_n+1), device=dev)
-    for i , theta in enumerate(theta_ls):
+    att_exponent_acc_map = tc.zeros((len(rot_angles), sample_height_n, sample_size_n, sample_size_n+1), device=dev)
+    for i , theta in enumerate(rot_angles):
         theta = tc.tensor(theta,  device=dev)
         concentration_map_rot = rotate(grid_concentration, theta, dev)
         for j in range(n_element):
-            lac_single = concentration_map_rot[j] * probe_attCS_ls[j]
+            lac_single = concentration_map_rot[j] * mu_probe[j]
             lac_acc = tc.cumsum(lac_single, axis=2)
             lac_acc = tc.cat((tc.zeros((sample_height_n, sample_size_n, 1), device=dev), lac_acc), dim = 2)
             att_exponent_acc = lac_acc * (sample_size_cm / sample_size_n) 
@@ -302,7 +302,7 @@ def find_lines_roi_idx_from_dataset(data_path, f_XRF_data, element_lines_roi, st
     if std_sample:
         channel_names = XRF_data['MAPS/channel_names'][...]
     else:
-        channel_names = XRF_data['exchange/elements'][...]
+        channel_names = XRF_data['elements'][...]
         
     channel_names = np.array([str(channel_name, 'utf-8') for channel_name in channel_names])
     #element_lines_roi_idx = np.zeros(len(element_lines_roi)).astype(np.int)
@@ -357,10 +357,11 @@ def prepare_fl_lines(element_lines_roi, n_line_group_each_element, probe_energy,
     return FL_all_elements_dic
 
 
-def MakeFLlinesDictionary_manual(element_lines_roi,                           
-                                 n_line_group_each_element, probe_energy, 
+def MakeFLlinesDictionary_manual(element_lines_roi,
+                                 n_line_group_each_element, probe_energy,
                                  sample_size_n, sample_size_cm,
-                                 fl_line_groups = np.array(["K", "L", "M"]), fl_K = fl["K"], fl_L = fl["L"], fl_M = fl["M"]):
+                                 fl_line_groups = np.array(["K", "L", "M"]), fl_K = fl["K"], fl_L = fl["L"], fl_M = fl["M"],
+                                 fl_energy_override: dict = None):
 
     """
     Given the probe_energy and the fluorescence lines of interests, output a dictionary.
@@ -384,16 +385,22 @@ def MakeFLlinesDictionary_manual(element_lines_roi,
         fl_cs = xlib_np.CS_FluorLine_Kissel_Cascade(np.array([AN[element_line_roi[0]]]), fl[element_line_roi[1]], probe_energy).flatten()
 
         if np.sum(fl_cs) != 0:
-            fl_energy_group = np.average(fl_energy, weights=fl_cs) 
+            fl_energy_group = np.average(fl_energy, weights=fl_cs)
             fl_cs_group = np.sum(fl_cs)
         else:
             fl_energy_group = 0.
             fl_cs_group = 0.
 
+        # Apply user-specified emission energy override if provided
+        if fl_energy_override is not None:
+            key = (element_line_roi[0], element_line_roi[1])
+            if key in fl_energy_override:
+                fl_energy_group = fl_energy_override[key]
+
         FL_all_elements_dic["fl_energy"] = np.append(FL_all_elements_dic["fl_energy"], fl_energy_group)
         fl_unit_con = fl_cs_group * voxel_size
-        FL_all_elements_dic["detected_fl_unit_concentration"] = np.append(FL_all_elements_dic["detected_fl_unit_concentration"], fl_unit_con)   
-        
+        FL_all_elements_dic["detected_fl_unit_concentration"] = np.append(FL_all_elements_dic["detected_fl_unit_concentration"], fl_unit_con)
+
     return FL_all_elements_dic
 
 def generate_fl_signal_from_each_voxel_3d(src_path, theta_st, theta_end, n_theta, sample_size_n, sample_height_n, sample_size_cm, this_aN_dic, probe_energy, dev):
@@ -442,7 +449,7 @@ def generate_fl_signal_from_each_voxel_3d(src_path, theta_st, theta_end, n_theta
     """
     element_ls = np.array(list(this_aN_dic.keys()))
     n_element = tc.tensor(len(element_ls)).to(dev)
-    theta_ls = - tc.linspace(theta_st, theta_end, n_theta+1)[:-1].to(dev)
+    rot_angles = - tc.linspace(theta_st, theta_end, n_theta+1)[:-1].to(dev)
 
     grid_concentration = tc.tensor(np.load(src_path)).float().to(dev)
 
@@ -452,7 +459,7 @@ def generate_fl_signal_from_each_voxel_3d(src_path, theta_st, theta_end, n_theta
                               group_lines = True)
 
     fl_map_tot = tc.zeros((n_theta, fl_all_lines_dic["n_lines"], sample_height_n * sample_size_n * sample_size_n), device=dev)
-    for i, theta in enumerate(theta_ls):
+    for i, theta in enumerate(rot_angles):
         concentration_map_rot = rotate(grid_concentration, tc.tensor(theta, dtype=tc.float32), dev)
         concentration_map_rot_flat = concentration_map_rot.view(len(element_ls), sample_height_n * sample_size_n * sample_size_n)
         line_idx = 0
@@ -1871,7 +1878,7 @@ def self_absorption_att_ratio_single_theta_3d(src_path, n_det, P, det_size_cm, d
     
     # generate an arrary of total attenuation cross section with the dimension: (n_element, n_elemental_lines)
     # The component in the array represents the total attenuation cross section at some line energy in some element (with unitary concentration)
-    FL_line_attCS_ls = tc.as_tensor(xlib_np.CS_Total(aN_ls, fl_all_lines_dic["fl_energy"])).float().to(dev)
+    mu_fl = tc.as_tensor(xlib_np.CS_Total(aN_ls, fl_all_lines_dic["fl_energy"])).float().to(dev)
 
     concentration_map_rot = rotate(grid_concentration, theta, dev).float()
     concentration_map_rot_flat = concentration_map_rot.view(n_element, n_voxel).float()
@@ -1879,7 +1886,7 @@ def self_absorption_att_ratio_single_theta_3d(src_path, n_det, P, det_size_cm, d
 
     # lac: linear attenuation coefficient = concentration * attenuation_cross_section, 
     # dimension: n_element, n_lines, n_voxel(FL source), n_voxel)
-    lac = concentration_map_rot_flat.view(n_element, 1, 1, n_voxel) * FL_line_attCS_ls.view(n_element, n_lines, 1, 1)
+    lac = concentration_map_rot_flat.view(n_element, 1, 1, n_voxel) * mu_fl.view(n_element, n_lines, 1, 1)
     lac = lac.expand(-1, -1, n_voxel, -1).float()
    
     att_exponent = tc.stack([lac[:,:, P[m][0].to(dtype=tc.long), P[m][1].to(dtype=tc.long)] * P[m][2].view(1, 1, -1).repeat(n_element, n_lines, 1) for m in range(n_det)])
@@ -1900,8 +1907,8 @@ def create_XRF_data_single_theta_3d(n_det, P, theta_st, theta_end, n_theta, src_
     if not os.path.exists(save_path):
         os.makedirs(save_path)    
     # (n_theta, sample_size_n * sample_size_n)
-    theta_ls = - tc.linspace(theta_st, theta_end, n_theta + 1)[:-1]
-    theta = theta_ls[this_theta_idx]
+    rot_angles = - tc.linspace(theta_st, theta_end, n_theta + 1)[:-1]
+    theta = rot_angles[this_theta_idx]
     probe_before_attenuation_flat = probe_cts * tc.ones((sample_height_n * sample_size_n * sample_size_n), device=dev)
     att_ratio_map_flat = attenuation_3d(src_path, theta_st, theta_end, n_theta, sample_height_n, sample_size_n, sample_size_cm, this_aN_dic, probe_energy, dev)[0][this_theta_idx]
     SA_att_ratio =  self_absorption_att_ratio_single_theta_3d(src_path, n_det, P, det_size_cm, det_from_sample_cm, det_ds_spacing_cm, sample_size_n, sample_size_cm, sample_height_n, 
@@ -1951,8 +1958,8 @@ def create_XRF_data_3d(n_ranks, rank, P_folder, f_P, theta_st, theta_end, n_thet
         P_handle = h5py.File(P_save_path + ".h5", 'r')
         P = tc.from_numpy(P_handle['P_array'][...])
         n_det = P.shape[0] 
-        theta_ls = - tc.linspace(theta_st, theta_end, n_theta + 1)[:-1] 
-        for this_theta_idx, theta in enumerate(tqdm(theta_ls)):
+        rot_angles = - tc.linspace(theta_st, theta_end, n_theta + 1)[:-1] 
+        for this_theta_idx, theta in enumerate(tqdm(rot_angles)):
             create_XRF_data_single_theta_3d(n_det, P, theta_st, theta_end, n_theta, src_path, det_size_cm, det_from_sample_cm, det_ds_spacing_cm, sample_size_n,
                                  sample_size_cm, sample_height_n, this_aN_dic, probe_cts, probe_energy, save_path, save_fname, Poisson_noise, dev, this_theta_idx)
         P_handle.close()

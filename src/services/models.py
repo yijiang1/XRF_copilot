@@ -43,10 +43,8 @@ class XRFReconstructionParams(BaseModel):
     """Pydantic model for XRF tomographic reconstruction parameters."""
 
     # ── Data paths ──
-    data_path: str
-    f_XRF_data: str
-    f_XRT_data: str
-    recon_path: str
+    fn_root: str                    # Working directory containing the single H5 data file
+    fn_data: str = "data.h5"        # Single HDF5 file (APS exchange format: exchange/data has all channels)
     P_folder: str
     f_P: str = "Intersecting_Length"
     f_recon_grid: str = "grid_concentration"
@@ -60,11 +58,13 @@ class XRFReconstructionParams(BaseModel):
 
     # ── Elements (parsed from user-friendly strings) ──
     # e.g. "Ca, Sc"  →  {"Ca": 20, "Sc": 21}  (atomic numbers auto-looked up via xraylib)
-    element_symbols: str = "Ca, Sc"
+    element_symbols: str = ""         # comma-sep selected channel names from GUI tiles (e.g. "Ca, Ca_L, Sc")
     # e.g. "Ca K, Ca L, Sc K, Sc L"  →  [["Ca","K"],["Ca","L"],...]
     element_lines_roi_str: str = "Ca K, Ca L, Sc K, Sc L"
     # e.g. "2, 2"  →  [2, 2]
     n_line_group_each_element_str: str = "2, 2"
+    # comma-sep user-specified emission energies (keV) per selected element tile
+    emission_energy: str = ""
 
     # ── Probe ──
     probe_energy: float = 20.0
@@ -98,8 +98,8 @@ class XRFReconstructionParams(BaseModel):
     XRT_ratio_dataset_idx: int = 3
     scaler_counts_us_ic_dataset_idx: int = 1
     scaler_counts_ds_ic_dataset_idx: int = 2
-    theta_ls_dataset: str = "exchange/theta"
-    channel_names: str = "exchange/elements"
+    theta_ls_dataset: str = "rot_angles"
+    channel_names: str = "elements"
 
     # ── Compute ──
     gpu_id: int = 3
@@ -109,10 +109,8 @@ class DiReconParams(BaseModel):
     """Pydantic model for Di et al. 2017 XRF tomographic reconstruction (Python/PyTorch)."""
 
     # ── Data paths ──
-    data_path: str
-    f_XRF_data: str
-    f_XRT_data: str
-    recon_path: str
+    fn_root: str                    # Working directory containing the single H5 data file
+    fn_data: str = "data.h5"        # Single HDF5 file (APS exchange format: exchange/data has all channels)
     P_folder: str
     f_P: str = "Intersecting_Length"          # shared with Panpan if geometry matches
     f_recon_grid: str = "di_grid_concentration"
@@ -125,9 +123,10 @@ class DiReconParams(BaseModel):
     sample_size_cm: float = 0.01
 
     # ── Elements (same format as Panpan) ──
-    element_symbols: str = "Ca, Sc"
+    element_symbols: str = ""         # comma-sep selected channel names from GUI tiles
     element_lines_roi_str: str = "Ca K, Ca L, Sc K, Sc L"
     n_line_group_each_element_str: str = "2, 2"
+    emission_energy: str = ""         # comma-sep user-specified emission energies (keV) per tile
 
     # ── Probe ──
     probe_energy: float = 20.0
@@ -163,8 +162,8 @@ class DiReconParams(BaseModel):
     XRT_ratio_dataset_idx: int = 3
     scaler_counts_us_ic_dataset_idx: int = 1
     scaler_counts_ds_ic_dataset_idx: int = 2
-    theta_ls_dataset: str = "exchange/theta"
-    channel_names: str = "exchange/elements"
+    theta_ls_dataset: str = "rot_angles"
+    channel_names: str = "elements"
 
     # ── Compute ──
     gpu_id: int = 3

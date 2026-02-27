@@ -255,16 +255,16 @@ class Core(object):
 
 
 
-    def re_projection(self, img3D, angle_list, ax=1):
+    def re_projection(self, img3D, rot_angles, ax=1):
 
         """
-        Project the 3D image along axis = ax after rotating the angle in the angle_list
+        Project the 3D image along axis = ax after rotating the angle in the rot_angles
 
         Parameters:
         -----------
 
         img3D:      3D array
-        angle_list: 1D array
+        rot_angles: 1D array
         ax:         rotation axis
                     ax = 1 --> sum up the row (default)--> x-ray path is paralle to image's vertical direction
                     ax = 2 --> sum up the colum
@@ -274,26 +274,26 @@ class Core(object):
 
         3D array,
             e.g., if returns img_prj with shape of [10,200,200]:
-                  10 equals the number of angles in angle_list
+                  10 equals the number of angles in rot_angles
                   200 x 200 is the projection image size
         """
 
         img3D = np.array(img3D)
         img3D = rm_nan(img3D)
         im_size = img3D.shape
-        ang_size = angle_list.shape
+        ang_size = rot_angles.shape
 
         if ax == 1:  # sum up the row --> projection from "top" to "bottom"
             img_prj = np.zeros([ang_size[0], im_size[0], im_size[2]])
             for i in range(ang_size[0]):
-                print(f'current angle: {angle_list[i]}')
-                img_prj[i] = np.sum(rot3D(img3D, angle_list[i]), ax)
+                print(f'current angle: {rot_angles[i]}')
+                img_prj[i] = np.sum(rot3D(img3D, rot_angles[i]), ax)
 
         elif ax == 2:  # sum up the colume --> projection from "left" to "right"
             img_prj = np.zeros([ang_size[0], im_size[0], im_size[1]])
             for i in range(ang_size[0]):
-                print(f'current angle: {angle_list[i]}')
-                img_prj[i] = np.sum(rot3D(img3D, angle_list[i]), ax)
+                print(f'current angle: {rot_angles[i]}')
+                img_prj[i] = np.sum(rot3D(img3D, rot_angles[i]), ax)
         else:
             print('check "ax". Nothing done with the image!')
             return img3D
@@ -664,7 +664,7 @@ class Core(object):
             fname = fn_root + elem + '_ref_prj_single_file.h5'
             with h5py.File(fname, 'w') as hf:
                 hf.create_dataset('dataset_1', data=data)
-                hf.create_dataset('angle_list', data=current_angle)
+                hf.create_dataset('rot_angles', data=current_angle)
         elif mode == 'multi_file' or mode == 'm':
             fname = fn_root + elem + '_ref_prj_' + f'{angle_id:04d}' + '.tiff'
             #print(fname)
@@ -719,22 +719,25 @@ class Core(object):
         '''
         elem_type = ['Zr', 'La', 'Hf']
         XEng = 12
-        em_E = [4.6, ]
+        em_E = {'Zr': 4.6, 'La': 5.1, ...}
+
+        Returns:
+        mu_probe: ndarray shape (n_elem,)
+            MAC of each element at incident probe energy XEng
+        mu_fl: ndarray shape (n_elem, n_elem)
+            mu_fl[i, j] = MAC of element i at FL energy of element j
         '''
         et = elem_type
-        cs = {}
         n = len(elem_type)
-        cs['elem_type'] = elem_type
-        for i in range(n):
-            # atten at incident x-ray
-            cs[f'{et[i]}-x'] = xraylib.CS_Total(xraylib.SymbolToAtomicNumber(et[i]), XEng)
-            for j in range(n):
-                # atten at each emission line
-                cs[f'{et[i]}-{et[j]}'] = xraylib.CS_Total(xraylib.SymbolToAtomicNumber(et[i]), em_E[et[j]])
-        return cs
+        mu_probe = np.array([xraylib.CS_Total(xraylib.SymbolToAtomicNumber(et[i]), XEng) for i in range(n)])
+        mu_fl = np.array([
+            [xraylib.CS_Total(xraylib.SymbolToAtomicNumber(et[i]), em_E[et[j]]) for j in range(n)]
+            for i in range(n)
+        ])
+        return mu_probe, mu_fl
 
 
-    def cal_atten_with_direction(self, img4D, cs, param, position_det='r', enable_scale=False, num_cpu=8):
+    def cal_atten_with_direction(self, img4D, mu_probe, mu_fl, param, position_det='r', enable_scale=False, num_cpu=8):
         """
         Calculate the attenuation of incident x-ray, fluorescent with given
         experiment configuration. Assume x-ray is passing from front to the back
@@ -753,7 +756,9 @@ class Core(object):
 
         param: paramters loaded from files
 
-        cs: cross-section values derived from parameter
+        mu_probe: ndarray shape (n_elem,), MAC at incident probe energy
+
+        mu_fl: ndarray shape (n_elem, n_elem), mu_fl[i, j] = MAC of element i at FL energy of element j
 
         position_dec: detector position
             'r': right side of 3D object
@@ -769,7 +774,7 @@ class Core(object):
         incident x-ray Attenuation
         """
 
-        elem_type = cs['elem_type']
+        elem_type = param['elem_type']
         n_type = img4D.shape[0]
 
         # change detector position from "right (or left) to "front"
@@ -789,7 +794,7 @@ class Core(object):
             img4D_b = img4D_r.copy()
         '''
 
-        atten, atten_fl, atten_xray = self.cal_atten_3D(img4D_r, cs, param, enable_scale=enable_scale, num_cpu=num_cpu)
+        atten, atten_fl, atten_xray = self.cal_atten_3D(img4D_r, mu_probe, mu_fl, param, enable_scale=enable_scale, num_cpu=num_cpu)
 
         atten3D = {}
         # reverse the rotation
@@ -806,12 +811,12 @@ class Core(object):
 
 
 
-    def generate_H(self, elem, ref3D_tomo, sli, angle_list, bad_angle_index=[], file_path='./Angle_prj', flag=1):
+    def generate_H(self, elem, ref3D_tomo, sli, rot_angles, bad_angle_index=[], file_path='./Angle_prj', flag=1):
         """
         Generate matriz H and I for solving eqution: H*C=I
         In folder of file_path:
                 Needs 3D attenuation matrix at each rotation angle
-        e.g. H = generate_H('Gd', Gd_tomo, 30, angle_list, bad_angle_index, file_path='./Angle_prj', flag=1)
+        e.g. H = generate_H('Gd', Gd_tomo, 30, rot_angles, bad_angle_index, file_path='./Angle_prj', flag=1)
 
         Parameters:
         -----------
@@ -822,11 +827,11 @@ class Core(object):
             a referenced 3D tomography data with same shape of attentuation matrix
         sli: int
             index of slice ID in 3D tomo
-        angle_list: 1d array
+        rot_angles: 1d array
             rotation angles in unit of degree
         bad_angle_index: 1d array
             angle_index that angle will not be used,
-            e.g. bad_angle_index=[0,10,36] --> angle_list[0] will not be used
+            e.g. bad_angle_index=[0,10,36] --> rot_angles[0] will not be used
         file_path: folder path. Under the path, it includes:
             attenuation matrix with name of:  e.g. atten_Gd_prj_50.0.h5
             these files can be generated through function of: 'write_attenuation'
@@ -845,7 +850,7 @@ class Core(object):
             fpre_att = file_path + '/atten_' + elem + '_prj_'
 
         ref_tomo = ref3D_tomo.copy()
-        theta = np.array(angle_list / 180 * np.pi)
+        theta = np.array(rot_angles / 180 * np.pi)
         num = len(theta) - len(bad_angle_index)
         s = ref_tomo.shape
         cx = (s[2]-1) / 2.0       # center of col
@@ -863,9 +868,9 @@ class Core(object):
             if i in bad_angle_index:
                 continue
             k = k + 1
-            #print(f'current angle: {angle_list[i]}')
+            #print(f'current angle: {rot_angles[i]}')
             if flag:
-                #f_att = fpre_att + f'{angle_list[i]:04d}.tiff'
+                #f_att = fpre_att + f'{rot_angles[i]:04d}.tiff'
                 f_att = fpre_att + f'{i:04d}.tiff'
                 att = io.imread(f_att)
                 if len(att.shape) == 3:
@@ -906,13 +911,13 @@ class Core(object):
         return H_tot
 
 
-    def generate_I(self, elem, ref3D_tomo, sli, angle_list, bad_angle_index=[], file_path='./Angle_prj'):
+    def generate_I(self, elem, ref3D_tomo, sli, rot_angles, bad_angle_index=[], file_path='./Angle_prj'):
 
         """
         Generate matriz I for solving eqution: H*C=I
         In folder of file_path:
                 Needs aligned 2D projection at each rotation angle
-        e.g. I = generate_I(Gd, 30, angle_list, bad_angle_index, file_path='./Angle_prj')
+        e.g. I = generate_I(Gd, 30, rot_angles, bad_angle_index, file_path='./Angle_prj')
 
         Parameters:
         -----------
@@ -923,11 +928,11 @@ class Core(object):
             a referenced 3D tomography data with same shape of attentuation matrix
         sli: int
             index of slice ID in 3D tomo
-        angle_list: 1d array
+        rot_angles: 1d array
             rotation angles in unit of degree
         bad_angle_index: 1d array
             angle_index that angle will not be used,
-            e.g. bad_angle_index=[0,10,36] --> angle_list[0] will not be used
+            e.g. bad_angle_index=[0,10,36] --> rot_angles[0] will not be used
         file_path: folder path. Under the path, it includes:
              aligned projection image:         e.g. Gd_ref_prj_50.0.h5
              these files can be generated through function of: 'write_projection'
@@ -942,7 +947,7 @@ class Core(object):
 
         # fpre_prj = file_path + '/' + elem_type.lower() + '_ref_prj_'
         fpre_prj = file_path + '/' + elem + '_ref_prj_'
-        theta = np.array(angle_list / 180 * np.pi)
+        theta = np.array(rot_angles / 180 * np.pi)
         num = len(theta) - len(bad_angle_index)
         s = ref3D_tomo.shape
         n = s[2]*num
@@ -958,13 +963,13 @@ class Core(object):
         return I_tot
 
 
-    def generate_I_slices(self, elem, img3D_shape, angle_list, bad_angle_index=[], file_path='./Angle_prj'):
+    def generate_I_slices(self, elem, img3D_shape, rot_angles, bad_angle_index=[], file_path='./Angle_prj'):
 
         #print('Reding aligned projection and generate matrix "I"...')
 
         # fpre_prj = file_path + '/' + elem_type.lower() + '_ref_prj_'
         fpre_prj = file_path + '/' + elem + '_ref_prj_'
-        theta = np.array(angle_list / 180 * np.pi)
+        theta = np.array(rot_angles / 180 * np.pi)
         n_ang = len(theta) - len(bad_angle_index)
         s = img3D_shape
         n_sli = s[0]
@@ -1315,9 +1320,9 @@ class Core(object):
         return data
 
 
-    def cal_atten_3D(self, img4D, cs, param, enable_scale=False, num_cpu=8):
+    def cal_atten_3D(self, img4D, mu_probe, mu_fl, param, enable_scale=False, num_cpu=8):
 
-        elem_type = cs['elem_type']
+        elem_type = param['elem_type']
         rho = param['rho']
         pix = param['pix']
         #img_thick = param['img_thick']
@@ -1341,10 +1346,15 @@ class Core(object):
         else:
             scale_ratio = 1
 
-        for i, xrf_eng in enumerate(elem_type + ['x']):
+        # probe attenuation (mu_probe[j] = MAC of element j at incident energy)
+        mu['x'] = 0
+        for j, atten_ele in enumerate(elem_type):
+            mu['x'] += frac[j] * mu_probe[j] * rho[atten_ele] * scale_ratio
+        # FL attenuation (mu_fl[j, i] = MAC of element j at FL energy of element i)
+        for i, xrf_eng in enumerate(elem_type):
             mu[xrf_eng] = 0
             for j, atten_ele in enumerate(elem_type):
-                mu[xrf_eng] += frac[j] * cs[f'{atten_ele}-{xrf_eng}'] * rho[atten_ele] * scale_ratio
+                mu[xrf_eng] += frac[j] * mu_fl[j, i] * rho[atten_ele] * scale_ratio
 
         #step 1 attenuation of incident X-ray
         x_ray_atten = np.ones(s)
@@ -1440,7 +1450,7 @@ class Core(object):
         return img_s
 
 
-    def cal_and_save_atten_prj(self, param, cs, recon4D, angle_list, ref_prj, fsave='./Angle_prj', align_flag=0, enable_scale=False, num_cpu=8):
+    def cal_and_save_atten_prj(self, param, mu_probe, mu_fl, recon4D, rot_angles, ref_prj, fsave='./Angle_prj', align_flag=0, enable_scale=False, num_cpu=8):
         '''
         Function used to calcuate the attenuation coefficents of each elements and all 3D voxels
         results will be saved into the "fsave" folder
@@ -1458,39 +1468,39 @@ class Core(object):
         s = recon4D.shape
         elem_type = param['elem_type']
         Nelem = len(elem_type)
-        n_angle = len(angle_list)
+        n_angle = len(rot_angles)
         prj = np.zeros([Nelem, n_angle, s[1], s[3]])
         ref_prj_sum = np.sum(ref_prj, axis=0)
         for ang_id in range(n_angle):
-            print(f'\ncalculate and save attenuation and projection at angle {angle_list[ang_id]}: {ang_id+1}/{n_angle}')
-            res = self.cal_atten_prj_at_angle(angle_list[ang_id], recon4D, param, cs, position_det='r', enable_scale=enable_scale, num_cpu=num_cpu)
+            print(f'\ncalculate and save attenuation and projection at angle {rot_angles[ang_id]}: {ang_id+1}/{n_angle}')
+            res = self.cal_atten_prj_at_angle(rot_angles[ang_id], recon4D, param, mu_probe, mu_fl, position_det='r', enable_scale=enable_scale, num_cpu=num_cpu)
             if align_flag:
                 _, r, c = align_img(res['prj_sum'], ref_prj_sum[ang_id])
-                print(f'shift projection image at angle={angle_list[ang_id]}: {r}, {c}')
+                print(f'shift projection image at angle={rot_angles[ang_id]}: {r}, {c}')
             for i in range(Nelem):
                 elem = elem_type[i]
                 if align_flag:
                     #prj[i, ang_id],r,c = align_img(res['prj'][elem], ref_prj[i, ang_id])
-                    #print(f'align {elem} at angle={angle_list[ang_id]}: {r}, {c}')
+                    #print(f'align {elem} at angle={rot_angles[ang_id]}: {r}, {c}')
                     prj[i, ang_id] = ndimage.shift(ref_prj[i, ang_id], [r, c])
 
                 else:
                     prj[i, ang_id] = ref_prj[i, ang_id]
-                self.write_projection('m', elem, prj[i, ang_id], angle_list[ang_id], ang_id, fsave)
-                self.write_attenuation(elem, res['atten'][elem], angle_list[ang_id], ang_id, fsave)
+                self.write_projection('m', elem, prj[i, ang_id], rot_angles[ang_id], ang_id, fsave)
+                self.write_attenuation(elem, res['atten'][elem], rot_angles[ang_id], ang_id, fsave)
 
 
-    def cal_atten_prj_at_angle(self, angle, img4D, param, cs, position_det='r', enable_scale=False, num_cpu=8):
+    def cal_atten_prj_at_angle(self, angle, img4D, param, mu_probe, mu_fl, position_det='r', enable_scale=False, num_cpu=8):
         '''
         calculate the attenuation and projection at single angle
         '''
-        elem_type = cs['elem_type']
+        elem_type = param['elem_type']
         s = img4D.shape
         n_type = len(elem_type)
         img4D_r = rot3D(img4D, angle)
         prj = {}
         prj_sum = 0
-        atten = self.cal_atten_with_direction(img4D_r, cs, param, position_det='r', enable_scale=enable_scale, num_cpu=num_cpu)
+        atten = self.cal_atten_with_direction(img4D_r, mu_probe, mu_fl, param, position_det='r', enable_scale=enable_scale, num_cpu=num_cpu)
         for j in range(n_type):
             ele = elem_type[j]
             prj[ele] = np.sum(img4D_r[j]*atten[ele], axis=1)
@@ -1503,16 +1513,16 @@ class Core(object):
 
 
 
-    def absorption_correction_mpi(self, elem, ref_tomo, angle_list, fpath_atten, n_iter,
+    def absorption_correction_mpi(self, elem, ref_tomo, rot_angles, fpath_atten, n_iter,
                                     num_cpu=4, save_tiff=True, fpath_save='./recon'):
 
-        atten4D = read_attenuation_at_all_angle(angle_list, fpath_atten, elem)
+        atten4D = read_attenuation_at_all_angle(rot_angles, fpath_atten, elem)
         self.Atten_slices = np.transpose(atten4D, [1, 0, 2, 3]) # (300, 53, 400, 400)
         n_sli = self.Atten_slices.shape[0]
         slices = np.arange(n_sli)
 
         partial_func = partial(self.absorption_correction, elem=elem,
-                            ref_tomo=ref_tomo, angle_list=angle_list,
+                            ref_tomo=ref_tomo, rot_angles=rot_angles,
                             fpath_atten=fpath_atten, n_iter=n_iter,
                             save_tiff=save_tiff, fpath_save=fpath_save)
         pool = Pool(num_cpu)
@@ -1533,13 +1543,13 @@ class Core(object):
         return res
 
 
-    def absorption_correction(self, sli_id, elem, ref_tomo, angle_list, fpath_atten, n_iter=10,
+    def absorption_correction(self, sli_id, elem, ref_tomo, rot_angles, fpath_atten, n_iter=10,
                                 save_tiff=True, fpath_save='./recon'):
         # Atten_slices.shape = (300, 53, 400, 400)
-        I_tot = self.generate_I(elem, ref_tomo, sli_id, angle_list, [], fpath_atten)
+        I_tot = self.generate_I(elem, ref_tomo, sli_id, rot_angles, [], fpath_atten)
 
-        # angle_id = np.arange(len(angle_list))
-        #coef_att4D = read_attenuation_at_all_angle(fpath_atten, elem, angle_list) # iter=-10 --> rescale attenuation coefficient to original size
+        # angle_id = np.arange(len(rot_angles))
+        #coef_att4D = read_attenuation_at_all_angle(fpath_atten, elem, rot_angles) # iter=-10 --> rescale attenuation coefficient to original size
         #atten3D = coef_att4D[:, sli_id]
 
         '''
@@ -1554,7 +1564,7 @@ class Core(object):
         H_tot = np.zeros((s[0]*s[2], s[1]*s[2])) # (53x400, 400*400)
         H_zero = np.zeros((s[2], s[1]*s[2])) # (400, 400*400)
 
-        theta = angle_list / 180. * np.pi
+        theta = rot_angles / 180. * np.pi
         H_jit = self.generate_H_jit(tomo3D_shape, theta, atten3D, H_tot, H_zero)
         img2D = ref_tomo[sli_id]
         img2D[img2D<0] = 0
@@ -1570,14 +1580,14 @@ class Core(object):
 
 
 
-    def cuda_generate_H_single_slice(self, atten_sli, angle_list, H0=None, H_tot=None):
+    def cuda_generate_H_single_slice(self, atten_sli, rot_angles, H0=None, H_tot=None):
         '''
         using numba.cuda
         return H_tot as cuda_array
         '''
         blocks_2D = (16, 16)
         threads_2D = (16, 16)
-        theta = angle_list / 180. * np.pi
+        theta = rot_angles / 180. * np.pi
         s = atten_sli.shape # e.g, (53, 400, 400) --> 53 angles
         tomo_shape = (1, *s[1:])
         if H0 is None or (not cuda.is_cuda_array(H0)):
@@ -1603,7 +1613,7 @@ class Core(object):
         return H_tot
 
 
-    def cuda_absorption_correction_single_slice(self, img_sli, I_sli, atten_sli, angle_list,
+    def cuda_absorption_correction_single_slice(self, img_sli, I_sli, atten_sli, rot_angles,
                                                 H0=None, H_tot=None, n_iter=10,
                                                 save_tiff=False, fn_save='tmp.tiff'):
         '''
@@ -1622,7 +1632,7 @@ class Core(object):
         return: 2D numpy array
         '''
 
-        theta = angle_list / 180. * np.pi
+        theta = rot_angles / 180. * np.pi
         s = atten_sli.shape # e.g, (53, 400, 400) --> 53 angles
         tomo_shape = (1, *s[1:])
         if H0 is None or (not cuda.is_cuda_array(H0)):
@@ -1635,7 +1645,7 @@ class Core(object):
             h_tot = np.zeros((s[0]*s[2], s[1]*s[2]), dtype=np.float32)
             H_tot = cuda.to_device(h_tot)
 
-        self.cuda_generate_H_single_slice(atten_sli, angle_list, H0, H_tot)
+        self.cuda_generate_H_single_slice(atten_sli, rot_angles, H0, H_tot)
 
         if not cuda.is_cuda_array(I_sli):
             if len(I_sli.shape) == 1: # if it is single column vector, convert to (n, 1) array
@@ -1657,16 +1667,16 @@ class Core(object):
         return x_new
 
 
-    def cuda_absorption_correction_wrap(self, elem, ref_tomo, angle_list, fpath_atten, n_iter, save_tiff, fpath_save):
+    def cuda_absorption_correction_wrap(self, elem, ref_tomo, rot_angles, fpath_atten, n_iter, save_tiff, fpath_save):
         img3D_shape = ref_tomo.shape
-        Atten_slices, I_slices = self.prepare_atten_I(elem, img3D_shape, angle_list, fpath_atten)
+        Atten_slices, I_slices = self.prepare_atten_I(elem, img3D_shape, rot_angles, fpath_atten)
         fpath_save_elem = fpath_save + f'/{elem}'
         mk_directory(fpath_save_elem)
-        img_cor = self.cuda_absorption_correction_batch(ref_tomo, I_slices, Atten_slices, angle_list, n_iter,
+        img_cor = self.cuda_absorption_correction_batch(ref_tomo, I_slices, Atten_slices, rot_angles, n_iter,
                                         save_tiff, fpath_save_elem)
         return img_cor
 
-    def cuda_absorption_correction_batch(self, img3D, I_slices, Atten_slices, angle_list, n_iter=10,
+    def cuda_absorption_correction_batch(self, img3D, I_slices, Atten_slices, rot_angles, n_iter=10,
                                         save_tiff=False, fpath_save_elem='.'):
         '''
         img3D:
@@ -1679,7 +1689,7 @@ class Core(object):
 
         s_img = img3D.shape  # e.g., (300, 400, 400)
         n_sli = s_img[0]   # e.g., n_sli=300
-        n_ang = len(angle_list) # e.g, n_ang=53
+        n_ang = len(rot_angles) # e.g, n_ang=53
 
         s = (n_ang, *s_img[1:])
         h0 = np.zeros((s[2], s[1]*s[2]), dtype=np.float32)
@@ -1694,7 +1704,7 @@ class Core(object):
             I_sli = I_slices[i]
             I_sli = I_sli.reshape((len(I_sli), 1))
             atten_sli = Atten_slices[i]
-            img_cor3D[i] = self.cuda_absorption_correction_single_slice(img_sli, I_sli, atten_sli, angle_list,
+            img_cor3D[i] = self.cuda_absorption_correction_single_slice(img_sli, I_sli, atten_sli, rot_angles,
                                                                     H0, H_tot, n_iter, save_tiff, fn_save)
             kernel_zeros_2Darray[(16, 16), (16, 16)](H0)
             cuda.synchronize()
@@ -1703,15 +1713,15 @@ class Core(object):
         return img_cor3D
 
 
-    def prepare_atten_I(self, elem, img3D_shape, angle_list, fpath_atten):
+    def prepare_atten_I(self, elem, img3D_shape, rot_angles, fpath_atten):
 
         s_img = img3D_shape
         n_sli = s_img[0]
-        n_ang = len(angle_list)
+        n_ang = len(rot_angles)
 
-        atten4D = read_attenuation_at_all_angle(angle_list, fpath_atten, elem) # (n_ang, 300, 400,400)
+        atten4D = read_attenuation_at_all_angle(rot_angles, fpath_atten, elem) # (n_ang, 300, 400,400)
         Atten_slices = np.transpose(atten4D, [1, 0, 2, 3]) # (300, 53, 400, 400)
-        I_slices = self.generate_I_slices(elem, s_img, angle_list, bad_angle_index=[], file_path=fpath_atten)
+        I_slices = self.generate_I_slices(elem, s_img, rot_angles, bad_angle_index=[], file_path=fpath_atten)
 
         return Atten_slices, I_slices
 

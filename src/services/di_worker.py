@@ -36,31 +36,46 @@ def setup_worker_logger(status_queue):
     return logger
 
 
-def _parse_element_symbols(s: str) -> dict:
-    """Parse 'Ca, Sc' → {'Ca': 20, 'Sc': 21} via xraylib atomic number lookup."""
-    import xraylib
-    result = {}
-    for part in s.split(","):
-        sym = part.strip()
-        if sym:
-            result[sym] = xraylib.SymbolToAtomicNumber(sym)
-    return result
+def _detect_elements_from_channels(channel_names):
+    """Auto-detect elements and fluorescence lines from HDF5 channel names.
 
+    Rules:
+      'Ca'   → ('Ca', 'K')   bare name → K-shell
+      'Ca_L' → ('Ca', 'L')   _L suffix → L-shell
+      'Ca_M' → ('Ca', 'M')   _M suffix → M-shell
+      'us_ic', 'abs_ic', etc. → skipped (base not a valid xraylib element)
 
-def _parse_element_lines_roi(s: str) -> np.ndarray:
-    """Parse 'Ca K, Ca L, Sc K' → [['Ca','K'],['Ca','L'],['Sc','K']]."""
-    rows = []
-    for part in s.split(","):
-        part = part.strip()
-        tokens = part.split()
-        if len(tokens) == 2:
-            rows.append([tokens[0], tokens[1]])
-    return np.array(rows)
+    Returns:
+      this_aN_dic               dict  e.g. {'Ca': 20, 'Sc': 21}
+      element_lines_roi         ndarray shape (n_lines, 2)
+      n_line_group_each_element ndarray shape (n_elements,)
+    """
+    import xraylib as xlib
+    element_lines = []
+    for raw in channel_names:
+        name = raw.decode() if isinstance(raw, bytes) else str(raw)
+        parts = name.split("_")
+        base = parts[0]
+        try:
+            xlib.SymbolToAtomicNumber(base)
+        except Exception:
+            continue
+        shell = parts[1] if len(parts) > 1 and parts[1] in ("K", "L", "M") else "K"
+        element_lines.append((base, shell))
 
+    seen = set()
+    unique_elements = []
+    for sym, _ in element_lines:
+        if sym not in seen:
+            seen.add(sym)
+            unique_elements.append(sym)
 
-def _parse_int_list(s: str) -> np.ndarray:
-    """Parse '2, 2' → np.array([2, 2])."""
-    return np.array([int(x.strip()) for x in s.split(",") if x.strip()])
+    this_aN_dic = {sym: xlib.SymbolToAtomicNumber(sym) for sym in unique_elements}
+    element_lines_roi = np.array([[sym, shell] for sym, shell in element_lines])
+    n_line_group_each_element = np.array([
+        sum(1 for sym, _ in element_lines if sym == s) for s in unique_elements
+    ])
+    return this_aN_dic, element_lines_roi, n_line_group_each_element
 
 
 def di_reconstruction_worker_process(params: dict, status_queue, stop_event):
@@ -88,11 +103,6 @@ def di_reconstruction_worker_process(params: dict, status_queue, stop_event):
         else:
             dev = tc.device("cpu")
         worker_logger.info(f"Using device: {dev}")
-
-        # ── Parse user-friendly string params ──
-        this_aN_dic = _parse_element_symbols(params["element_symbols"])
-        element_lines_roi = _parse_element_lines_roi(params["element_lines_roi_str"])
-        n_line_group_each_element = _parse_int_list(params["n_line_group_each_element_str"])
 
         # ── Build FL line arrays ──
         fl_K = np.array([xlib.KA1_LINE, xlib.KA2_LINE, xlib.KA3_LINE,
@@ -124,20 +134,83 @@ def di_reconstruction_worker_process(params: dict, status_queue, stop_event):
             "timestamp": time.time(),
         })
 
+        # ── Auto-detect grid dims and elements from HDF5 ──
+        import h5py
+        data_file = os.path.join(params["fn_root"], params["fn_data"])
+        with h5py.File(data_file, "r") as _f:
+            _shape = _f["data"].shape          # (n_ch, n_ang, H, W)
+            _channel_names = _f["elements"][:] # bytes array of channel names
+        this_aN_dic, element_lines_roi, n_line_group_each_element = \
+            _detect_elements_from_channels(_channel_names)
+        worker_logger.info(
+            f"Auto-detected elements: {list(this_aN_dic.keys())}, "
+            f"lines: {element_lines_roi.tolist()}"
+        )
+
+        # ── Filter elements to user selection and build emission energy override ──
+        fl_energy_override = None
+        elem_symbols_str    = params.get("element_symbols", "").strip()
+        emission_energy_str = params.get("emission_energy", "").strip()
+        if elem_symbols_str and len(element_lines_roi) > 0:
+            selected_ch_names = [x.strip() for x in elem_symbols_str.split(",") if x.strip()]
+            selected_lines = set()
+            for ch_name in selected_ch_names:
+                parts = ch_name.split("_")
+                base  = parts[0]
+                shell = parts[1] if len(parts) > 1 and parts[1] in ("K", "L", "M") else "K"
+                selected_lines.add((base, shell))
+            mask = np.array([(row[0], row[1]) in selected_lines for row in element_lines_roi])
+            filtered = element_lines_roi[mask]
+            if len(filtered) > 0:
+                element_lines_roi = filtered
+                seen, unique_elems = set(), []
+                for sym, _ in element_lines_roi:
+                    if sym not in seen:
+                        seen.add(sym); unique_elems.append(sym)
+                this_aN_dic = {sym: xlib.SymbolToAtomicNumber(sym) for sym in unique_elems}
+                n_line_group_each_element = np.array([
+                    sum(1 for sym, _ in element_lines_roi if sym == s) for s in unique_elems
+                ])
+                worker_logger.info(
+                    f"User-selected elements: {list(this_aN_dic.keys())}, "
+                    f"lines: {element_lines_roi.tolist()}"
+                )
+            if emission_energy_str:
+                em_energies = [float(x.strip()) for x in emission_energy_str.split(",") if x.strip()]
+                if len(selected_ch_names) == len(em_energies):
+                    fl_energy_override = {}
+                    for ch_name, em_e in zip(selected_ch_names, em_energies):
+                        parts = ch_name.split("_")
+                        base  = parts[0]
+                        shell = parts[1] if len(parts) > 1 and parts[1] in ("K", "L", "M") else "K"
+                        if em_e > 0:
+                            fl_energy_override[(base, shell)] = em_e
+                    worker_logger.info(f"Emission energy override: {fl_energy_override}")
+
+        sample_height_n = int(_shape[2])
+        sample_size_n   = int(_shape[3])
+        pixel_size_nm   = float(params["pixel_size_nm"])
+        sample_size_cm  = sample_size_n * pixel_size_nm * 1e-7
+        worker_logger.info(
+            f"Data shape: {_shape} → sample_size_n={sample_size_n}, "
+            f"sample_height_n={sample_height_n}, "
+            f"sample_size_cm={sample_size_cm:.6f} cm (pixel={pixel_size_nm} nm)"
+        )
+
         recon_file = reconstruct_di_xrftomo(
             dev=dev,
-            data_path=params["data_path"],
-            f_XRF_data=params["f_XRF_data"],
-            f_XRT_data=params["f_XRT_data"],
-            recon_path=params["recon_path"],
+            data_path=params["fn_root"],
+            f_XRF_data=params["fn_data"],
+            f_XRT_data=params["fn_data"],   # single file: exchange/data contains all channels
+            recon_path=params["fn_root"],
             P_folder=params["P_folder"],
             f_P=params["f_P"],
             f_recon_grid=params["f_recon_grid"],
             f_initial_guess=params["f_initial_guess"],
             f_recon_parameters=params["f_recon_parameters"],
-            sample_size_n=params["sample_size_n"],
-            sample_height_n=params["sample_height_n"],
-            sample_size_cm=params["sample_size_cm"],
+            sample_size_n=sample_size_n,
+            sample_height_n=sample_height_n,
+            sample_size_cm=sample_size_cm,
             this_aN_dic=this_aN_dic,
             element_lines_roi=element_lines_roi,
             n_line_group_each_element=n_line_group_each_element,
@@ -170,6 +243,7 @@ def di_reconstruction_worker_process(params: dict, status_queue, stop_event):
             use_saved_initial_guess=params["use_saved_initial_guess"],
             minibatch_size=params["minibatch_size"],
             save_every_n_epochs=params["save_every_n_epochs"],
+            fl_energy_override=fl_energy_override,
             progress_callback=progress_callback,
             fl_K=fl_K, fl_L=fl_L, fl_M=fl_M,
         )

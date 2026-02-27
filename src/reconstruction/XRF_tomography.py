@@ -125,10 +125,11 @@ def reconstruct_jXRFT_tomography(
         # the index of ds_ic in the dataset MAPS/scaler_names
         XRT_ratio_dataset_idx=None,
         # the index of abs_ic in the dataset MAPS/scaler_names
-        theta_ls_dataset='exchange/theta', channel_names='exchange/elements',
+        theta_ls_dataset='rot_angles', channel_names='elements',
         this_aN_dic=None, element_lines_roi=None, n_line_group_each_element=None,
         b1=None, b2=None, lr=None,
         P_folder=None, f_P=None, fl_K=fl["K"], fl_L=fl["L"], fl_M=fl["M"],
+        fl_energy_override=None,
         progress_callback=None, **kwargs,):
     
     comm = MPI.COMM_WORLD
@@ -151,38 +152,39 @@ def reconstruct_jXRFT_tomography(
     ####--------------------------------------------------------------####
     
     #### Make the lookup table of the fluorescence lines of interests ####
-    fl_all_lines_dic = MakeFLlinesDictionary_manual(element_lines_roi,                           
-                                                    n_line_group_each_element, probe_energy, 
+    fl_all_lines_dic = MakeFLlinesDictionary_manual(element_lines_roi,
+                                                    n_line_group_each_element, probe_energy,
                                                     sample_size_n, sample_size_cm,
-                                                    fl_line_groups = np.array(["K", "L", "M"]), fl_K = fl_K, fl_L = fl_L, fl_M = fl_M) #cpu
+                                                    fl_line_groups = np.array(["K", "L", "M"]), fl_K = fl_K, fl_L = fl_L, fl_M = fl_M,
+                                                    fl_energy_override=fl_energy_override) #cpu
     
     stdout_options = {'root':0, 'output_folder': recon_path, 'save_stdout': True, 'print_terminal': False}
     
-    FL_line_attCS_ls = tc.as_tensor(xlib_np.CS_Total(aN_ls, fl_all_lines_dic["fl_energy"])).float().to(dev) #dev
+    mu_fl = tc.as_tensor(xlib_np.CS_Total(aN_ls, fl_all_lines_dic["fl_energy"])).float().to(dev) #dev
     detected_fl_unit_concentration = tc.as_tensor(fl_all_lines_dic["detected_fl_unit_concentration"]).float().to(dev)
     n_line_group_each_element = tc.IntTensor(fl_all_lines_dic["n_line_group_each_element"]).to(dev)
     n_lines = fl_all_lines_dic["n_lines"] #scalar
     ####--------------------------------------------------------------####
     
     #### Calculate the MAC of probe ####
-    probe_attCS_ls = tc.as_tensor(xlib_np.CS_Total(aN_ls, probe_energy).flatten()).to(dev)
+    mu_probe = tc.as_tensor(xlib_np.CS_Total(aN_ls, probe_energy).flatten()).to(dev)
     ####----------------------------####
     
     #### Load all object angles ####
-    theta_ls = tc.from_numpy(y1_true_handle[theta_ls_dataset][...] * np.pi / 180).float()  #unit: rad #cpu
-    n_theta = len(theta_ls)  
+    rot_angles = tc.from_numpy(y1_true_handle[theta_ls_dataset][...] * np.pi / 180).float()  #unit: rad #cpu
+    n_theta = len(rot_angles)  
     ####------------------------####
    
     element_lines_roi_idx = find_lines_roi_idx_from_dataset(data_path, f_XRF_data, element_lines_roi, std_sample = False)
     
     #### pick only the element lines of interests from the channel data. flatten the data to strips
     #### original dim = (n_lines_roi, n_theta, sample_height_n, sample_size_n)
-    y1_true = tc.from_numpy(y1_true_handle['exchange/data'][element_lines_roi_idx]).view(len(element_lines_roi_idx), n_theta, sample_height_n * sample_size_n).to(dev)
+    y1_true = tc.from_numpy(y1_true_handle['data'][element_lines_roi_idx]).view(len(element_lines_roi_idx), n_theta, sample_height_n * sample_size_n).to(dev)
 #     #### pick the probe photon counts after the ion chamber from the scalers data as the transmission data
 #     y2_true = tc.from_numpy(y2_true_handle['exchange/data'][scaler_counts_ds_ic_dataset_idx]).view(n_theta, sample_height_n * sample_size_n).to(dev)
     
     ## Use this y2_true if using the attenuating expoenent in the XRT loss calculation
-    y2_true = tc.from_numpy(y2_true_handle['exchange/data'][XRT_ratio_dataset_idx]).view(n_theta, sample_height_n * sample_size_n).to(dev)
+    y2_true = tc.from_numpy(y2_true_handle['data'][XRT_ratio_dataset_idx]).view(n_theta, sample_height_n * sample_size_n).to(dev)
     y2_true = - tc.log(y2_true)
     
     #### pick the probe photon counts calibrated for all optics and detectors
@@ -289,8 +291,8 @@ def reconstruct_jXRFT_tomography(
                 recon_params.write("b1 = %.9f\n" %b1)
                 recon_params.write("b2 = %.9f\n" %b2)
                 recon_params.write("learning rate = %f\n" %lr)
-                recon_params.write("theta_st = %.2f\n" %theta_ls[0])
-                recon_params.write("theta_end = %.2f\n" %theta_ls[-1])
+                recon_params.write("theta_st = %.2f\n" %rot_angles[0])
+                recon_params.write("theta_end = %.2f\n" %rot_angles[-1])
                 recon_params.write("n_theta = %d\n" %n_theta)
                 recon_params.write("sample_size_n = %d\n" %sample_size_n)
                 recon_params.write("sample_height_n = %d\n" %sample_height_n)
@@ -310,21 +312,21 @@ def reconstruct_jXRFT_tomography(
             t0_epoch = time.perf_counter()
             if rank == 0:
                 rand_idx = tc.randperm(n_theta)
-                theta_ls_rand = theta_ls[rand_idx]  
+                rot_angles_rand = rot_angles[rand_idx]  
             else:
                 rand_idx = tc.ones(n_theta)
-                theta_ls_rand = tc.ones(n_theta)
+                rot_angles_rand = tc.ones(n_theta)
 
             comm.Barrier() 
             rand_idx = comm.bcast(rand_idx, root=0).to(dev) 
-            theta_ls_rand = comm.bcast(theta_ls_rand, root=0).to(dev)         
+            rot_angles_rand = comm.bcast(rot_angles_rand, root=0).to(dev)         
             comm.Barrier() 
             
             stdout_options = {'root':0, 'output_folder': recon_path, 'save_stdout': True, 'print_terminal': True}
             timestr = str(datetime.datetime.today())     
             print_flush_root(rank, val=f"epoch: {epoch}, time: {timestr}", output_file='', **stdout_options)
  
-            for idx, theta in enumerate(theta_ls_rand):
+            for idx, theta in enumerate(rot_angles_rand):
                 this_theta_idx = rand_idx[idx] 
                                           
                 # The updated X read by all ranks only at each new obj. angle
@@ -336,7 +338,7 @@ def reconstruct_jXRFT_tomography(
                     
                 if selfAb == True:               
                     X_ap_rot = rotate(X, theta, dev) #dev
-                    lac = X_ap_rot.view(n_element, 1, 1, n_voxel) * FL_line_attCS_ls.view(n_element, n_lines, 1, 1) #dev
+                    lac = X_ap_rot.view(n_element, 1, 1, n_voxel) * mu_fl.view(n_element, n_lines, 1, 1) #dev
                     lac = lac.expand(-1, -1, n_voxel_minibatch, -1).float() #dev
                 
                 else:
@@ -368,10 +370,10 @@ def reconstruct_jXRFT_tomography(
 #                     print_flush_root(rank, val=minibatch_ls, output_file='minibatch_ls.csv', **stdout_options)
                     
                     ## Load us_ic as the incoming probe count in this minibatch
-                    model = PPM(dev, selfAb, lac, X, p, n_element, n_lines, FL_line_attCS_ls,
+                    model = PPM(dev, selfAb, lac, X, p, n_element, n_lines, mu_fl,
                                  detected_fl_unit_concentration, n_line_group_each_element,
                                  sample_height_n, minibatch_size, sample_size_n, sample_size_cm,
-                                 probe_energy, probe_cts, probe_att, probe_attCS_ls,
+                                 probe_energy, probe_cts, probe_att, mu_probe,
                                  theta, signal_attenuation_factor,
                                  n_det, P_minibatch, det_dia_cm, det_from_sample_cm, det_solid_angle_ratio)
                     
@@ -549,8 +551,8 @@ def reconstruct_jXRFT_tomography(
                 recon_params.write("b1 = %.9f\n" %b1)
                 recon_params.write("b2 = %.9f\n" %b2)
                 recon_params.write("learning rate = %f\n" %lr)
-                recon_params.write("theta_st = %.2f\n" %theta_ls[0])
-                recon_params.write("theta_end = %.2f\n" %theta_ls[-1])
+                recon_params.write("theta_st = %.2f\n" %rot_angles[0])
+                recon_params.write("theta_end = %.2f\n" %rot_angles[-1])
                 recon_params.write("n_theta = %d\n" %n_theta)
                 recon_params.write("sample_size_n = %d\n" %sample_size_n)
                 recon_params.write("sample_height_n = %d\n" %sample_height_n)
@@ -569,14 +571,14 @@ def reconstruct_jXRFT_tomography(
             t0_epoch = time.perf_counter()
             if rank == 0:
                 rand_idx = tc.randperm(n_theta)
-                theta_ls_rand = theta_ls[rand_idx]  
+                rot_angles_rand = rot_angles[rand_idx]  
             else:
                 rand_idx = tc.ones(n_theta)
-                theta_ls_rand = tc.ones(n_theta)
+                rot_angles_rand = tc.ones(n_theta)
 
             comm.Barrier() 
             rand_idx = comm.bcast(rand_idx, root=0).to(dev) 
-            theta_ls_rand = comm.bcast(theta_ls_rand, root=0).to(dev)         
+            rot_angles_rand = comm.bcast(rot_angles_rand, root=0).to(dev)         
             comm.Barrier()     
              
             
@@ -584,7 +586,7 @@ def reconstruct_jXRFT_tomography(
             timestr = str(datetime.datetime.today())
             print_flush_root(rank, f"epoch: {epoch}, time: {timestr}", output_file='', **stdout_options)
             
-            for idx, theta in enumerate(theta_ls_rand):
+            for idx, theta in enumerate(rot_angles_rand):
                 this_theta_idx = rand_idx[idx]
 
                 # The updated X read by all ranks only at each new obj. angle
@@ -597,7 +599,7 @@ def reconstruct_jXRFT_tomography(
                 ## Calculate lac using the current X. lac (linear attenuation coefficient) has the dimension of [n_element, n_lines, n_voxel_minibatch, n_voxel]
                 if selfAb == True:
                     X_ap_rot = rotate(X, theta, dev) #dev
-                    lac = X_ap_rot.view(n_element, 1, 1, n_voxel) * FL_line_attCS_ls.view(n_element, n_lines, 1, 1) #dev
+                    lac = X_ap_rot.view(n_element, 1, 1, n_voxel) * mu_fl.view(n_element, n_lines, 1, 1) #dev
                     lac = lac.expand(-1, -1, n_voxel_minibatch, -1).float() #dev
                 
                 else:
@@ -620,10 +622,10 @@ def reconstruct_jXRFT_tomography(
                         P_minibatch = 0
                         n_det = 0                    
                                        
-                    model = PPM(dev, selfAb, lac, X, p, n_element, n_lines, FL_line_attCS_ls,
+                    model = PPM(dev, selfAb, lac, X, p, n_element, n_lines, mu_fl,
                                  detected_fl_unit_concentration, n_line_group_each_element,
                                  sample_height_n, minibatch_size, sample_size_n, sample_size_cm,
-                                 probe_energy, probe_cts, probe_att, probe_attCS_ls,
+                                 probe_energy, probe_cts, probe_att, mu_probe,
                                  theta, signal_attenuation_factor,
                                  n_det, P_minibatch, det_dia_cm, det_from_sample_cm, det_solid_angle_ratio)
 

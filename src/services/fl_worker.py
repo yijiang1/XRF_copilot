@@ -79,11 +79,19 @@ def fl_correction_worker_process(params: dict, status_queue, stop_event):
         smooth_size    = int(params.get("smooth_filter_size", 3))
         num_cpu        = int(params.get("num_cpu", 8))
         use_gpu        = bool(params.get("use_gpu", True))
+        use_torch      = bool(params.get("use_torch", False))
 
         if not os.path.isabs(fn_data):
             fn_data = os.path.join(fn_root, fn_data)
 
-        core = FL_correction_core.Core()
+        if use_torch:
+            from src.fl_correction.FL_correction_torch import TorchCore
+            import torch
+            core = TorchCore()
+            torch_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            _put_log(f"[torch] Using device: {torch_device}")
+        else:
+            core = FL_correction_core.Core()
 
         # ── Step 1: Load data ─────────────────────────────────────────────────
         _check_stop()
@@ -91,13 +99,13 @@ def fl_correction_worker_process(params: dict, status_queue, stop_event):
         with h5py.File(fn_data, "r") as f:
             img_all    = np.array(f["data"])
             theta_key  = params.get("theta_ls_dataset", "thetas")
-            angle_list = np.array(f[theta_key])
+            rot_angles = np.array(f[theta_key])
 
         s = img_all.shape
         img_all = img_all[:, :, : s[2] // b * b, : s[3] // b * b]
-        theta = angle_list / 180.0 * np.pi
+        theta = rot_angles / 180.0 * np.pi
         theta_tomopy = -theta
-        _put_log(f"Data shape after slicing: {img_all.shape}, angles: {len(angle_list)}")
+        _put_log(f"Data shape after slicing: {img_all.shape}, angles: {len(rot_angles)}")
 
         # ── Step 2: Build param dict from GUI inputs ───────────────────────────
         _check_stop()
@@ -144,7 +152,7 @@ def fl_correction_worker_process(params: dict, status_queue, stop_event):
             "em_cs":     em_cs,
             "elem_type": elem_type,
         }
-        cs = core.get_atten_coef(elem_type, XEng, em_E)
+        mu_probe, mu_fl = core.get_atten_coef(elem_type, XEng, em_E)
         param["pix"] *= b  # scale pixel size for binned volume
         _put_log(f"Elements: {elem_type}, XEng={XEng} keV, pix={pix:.1e} cm (×{b}={param['pix']:.1e} cm)")
 
@@ -260,35 +268,66 @@ def fl_correction_worker_process(params: dict, status_queue, stop_event):
             recon_cor = core.smooth_filter(recon_cor, smooth_size)
             recon_cor = FL.rm_boarder(recon_cor, border_pixels)
 
-            fsave_iter = os.path.join(fn_root, f"Angle_prj_{it:02d}")
-            core.cal_and_save_atten_prj(
-                param, cs, recon_cor, angle_list, ref_prj,
-                fsave=fsave_iter, align_flag=False,
-                enable_scale=False, num_cpu=num_cpu,
-            )
-            _put_log(f"  Attenuation computed in {time.time() - ts:.1f}s")
-
-            for i, elem in enumerate(elem_type):
-                _check_stop()
-                current_step += 1
+            if use_torch:
+                # ── Torch path: in-memory attenuation + batched MLEM ──────
                 _put_progress(
                     current_step, total_steps,
-                    f"Iteration {it}/{n_corr_iters}: correcting {elem} ({i + 1}/{n_elem})..."
+                    f"Iteration {it}/{n_corr_iters}: computing attenuation (torch)..."
                 )
+                atten_by_elem, prj_aligned = core.cal_and_save_atten_prj_torch(
+                    param, mu_probe, mu_fl, recon_cor, rot_angles, ref_prj,
+                    fsave=None, align_flag=False,
+                    enable_scale=False, num_cpu=num_cpu,
+                )
+                _put_log(f"  Attenuation computed in {time.time() - ts:.1f}s")
 
-                ref_tomo = np.ones(recon_cor[i].shape)
+                for i, elem in enumerate(elem_type):
+                    _check_stop()
+                    current_step += 1
+                    _put_progress(
+                        current_step, total_steps,
+                        f"Iteration {it}/{n_corr_iters}: correcting {elem} ({i + 1}/{n_elem}) [torch]..."
+                    )
+                    ref_tomo     = np.ones(recon_cor[i].shape)
+                    # I_obs: (n_sli, n_ang, n_col) = transpose of prj_aligned[i]
+                    I_obs_elem   = np.transpose(prj_aligned[i], (1, 0, 2))
+                    atten4D_elem = atten_by_elem[elem]          # (n_ang, n_sli, n_row, n_col)
+                    cor = core.cuda_absorption_correction_torch(
+                        elem, ref_tomo, atten4D_elem, I_obs_elem,
+                        rot_angles, corr_n_iter, torch_device,
+                    )
+                    recon_cor[i] = FL.rm_boarder(cor, border_pixels)
+            else:
+                # ── CPU / numba-CUDA path ──────────────────────────────────
+                fsave_iter = os.path.join(fn_root, f"Angle_prj_{it:02d}")
+                core.cal_and_save_atten_prj(
+                    param, mu_probe, mu_fl, recon_cor, rot_angles, ref_prj,
+                    fsave=fsave_iter, align_flag=False,
+                    enable_scale=False, num_cpu=num_cpu,
+                )
+                _put_log(f"  Attenuation computed in {time.time() - ts:.1f}s")
 
-                if use_gpu:
-                    cor = core.cuda_absorption_correction_wrap(
-                        elem, ref_tomo, angle_list, fsave_iter,
-                        corr_n_iter, True, fpath_save,
+                for i, elem in enumerate(elem_type):
+                    _check_stop()
+                    current_step += 1
+                    _put_progress(
+                        current_step, total_steps,
+                        f"Iteration {it}/{n_corr_iters}: correcting {elem} ({i + 1}/{n_elem})..."
                     )
-                else:
-                    cor = core.absorption_correction_mpi(
-                        elem, ref_tomo, angle_list, fsave_iter,
-                        corr_n_iter, num_cpu, True, fpath_save,
-                    )
-                recon_cor[i] = FL.rm_boarder(cor, border_pixels)
+
+                    ref_tomo = np.ones(recon_cor[i].shape)
+
+                    if use_gpu:
+                        cor = core.cuda_absorption_correction_wrap(
+                            elem, ref_tomo, rot_angles, fsave_iter,
+                            corr_n_iter, True, fpath_save,
+                        )
+                    else:
+                        cor = core.absorption_correction_mpi(
+                            elem, ref_tomo, rot_angles, fsave_iter,
+                            corr_n_iter, num_cpu, True, fpath_save,
+                        )
+                    recon_cor[i] = FL.rm_boarder(cor, border_pixels)
 
             FL.save_recon(fn_root, recon_cor, elem_type, it)
             _put_log(

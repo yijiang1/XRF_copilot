@@ -384,8 +384,10 @@ _EQ_MLEM = f"""
   C<sup>(n+1)</sup> = C<sup>(n)</sup> ·
   (H<sup>T</sup> (I / H C<sup>(n)</sup>)) / (H<sup>T</sup> 1)
   <div style="font-size:0.78rem; color:#6d28d9; margin-top:4px;">
-  MLEM multiplicative update — H is the attenuated Radon matrix (generate_H),
-  I is the measured XRF (generate_I)
+  MLEM multiplicative update — H is the attenuated Radon matrix, I is the measured XRF.<br>
+  <b>numba-CUDA</b>: H built explicitly per slice via <code>cuda_generate_H_single_slice</code> (~3.4 GB/elem).<br>
+  <b>TorchCore</b>: H applied implicitly — forward = rotate(X, θ) × att then sum-rows;
+  back = rotate(ratio × att, −θ); all slices batched on GPU simultaneously (use_torch=True).
   </div>
 </div>
 """
@@ -446,7 +448,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">XRF(numThetan, nTau+1, numChannel) — simulated;<br>xrfData — real measurement input to sfun_XRF_For.m</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">y1_true[:, angle_idx, :];<br>shape (n_lines, H×N) from HDF5 — same file as Panpan</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">y1_true — shape (n_lines_roi, n_theta, n_height × n_width);<br>loaded from exchange/data in HDF5</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">I_tot — 1D vector, shape (n_col × n_angles);<br>from generate_I() reading elem_ref_prj_*.tiff</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><b>numba-CUDA</b>: I_tot — 1D (n_col × n_angles); from generate_I() reading ref_prj_*.tiff (disk).<br><b>TorchCore</b>: I_obs — ndarray (n_sli, n_ang, n_col); from prj_aligned in cal_and_save_atten_prj_torch (in-memory, no disk write).</td>
     </tr>
     <tr style="border-bottom:1px solid #e2e8f0; background:#eff6ff;">
       <td style="padding:6px 10px; font-family:serif; font-style:italic; white-space:nowrap;">D<sup>T</sup><sub>θ,p</sub></td>
@@ -492,26 +494,26 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Scan param.</span></td>
       <td style="padding:6px 10px; color:#374151;">Set of rotation angles in degrees/radians. Defines the tomographic projections. Shuffled randomly each epoch (Panpan) to reduce correlation between updates.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">thetan(numThetan) — vector of angles (deg);<br>TransMatrix = rotation matrix per angle</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">theta_ls — (n_theta,) rad;<br>no shuffle (full-batch L-BFGS closure)</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">theta_ls_dataset = "exchange/theta" → theta_ls (×π/180 → rad);<br>shuffled per epoch as theta_ls_rand</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">theta_ls_dataset = "thetas" → angle_list (×π/180 → rad);<br>passed to generate_H(), generate_I(), cal_atten_with_direction()</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">theta_ls_dataset = "rot_angles" → rot_angles (×π/180 → rad);<br>no shuffle (full-batch L-BFGS closure)</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">theta_ls_dataset = "rot_angles" → rot_angles (×π/180 → rad);<br>shuffled per epoch as rot_angles_rand</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">theta_ls_dataset = "rot_angles" → rot_angles (×π/180 → rad);<br>passed to generate_H(), generate_I(), cal_atten_with_direction()</td>
     </tr>
     <tr style="border-bottom:1px solid #e2e8f0; background:#fffbeb;">
       <td style="padding:6px 10px; font-family:serif; font-style:italic; white-space:nowrap;">Δs</td>
       <td style="padding:6px 8px;"><span style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Scan param.</span></td>
       <td style="padding:6px 10px; color:#374151;">Voxel side length in cm. Sets the physical scale of attenuation integrals. Computed as sample_size_cm / sample_size_n.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">dz = [dx, dy] pixel spacing (cm);<br>Lvec(j) — exact per-pixel ray-voxel intersection<br>(from IntersectionSet.m)</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">dz = sample_size_cm / sample_size_n;<br>same formula as Panpan</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">sample_size_cm / sample_size_n;<br>used in att_exponent_acc = lac_acc × Δs</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">pix = pixel_size_nm × 1e-7 cm;<br>implicit in bilinear interp weights inside H</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">pixel_size_nm (GUI) → sample_size_cm = sample_size_n × pixel_size_nm × 1e−7;<br>dz = sample_size_cm / sample_size_n;<br>same formula as Panpan</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">pixel_size_nm (GUI) → sample_size_cm = sample_size_n × pixel_size_nm × 1e−7;<br>Δs = sample_size_cm / sample_size_n;<br>used in att_exponent_acc = lac_acc × Δs</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">pixel_size_nm (GUI) → pix = pixel_size_nm × 1e-7 cm;<br>implicit in bilinear interp weights inside H</td>
     </tr>
     <tr style="border-bottom:1px solid #e2e8f0; background:#fffbeb;">
       <td style="padding:6px 10px; font-family:serif; font-style:italic; white-space:nowrap;">n<sub>z</sub>, n<sub>y</sub>, n<sub>x</sub></td>
       <td style="padding:6px 8px;"><span style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Scan param.</span></td>
       <td style="padding:6px 10px; color:#374151;">Volume dimensions in pixels. n_z = number of slices (height), n_y × n_x = cross-section grid. Determines memory usage and compute cost.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">m = [m₁, m₂] — 2D grid per slice;<br>nTau+1 = n detector rows; numThetan = n angles</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">sample_height_n (n_z), sample_size_n (n_y = n_x);<br>no MPI — single GPU</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">sample_height_n (n_z), sample_size_n (n_y = n_x)</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">auto-detected in worker: data.shape[2] → sample_height_n (n_z);<br>data.shape[3] → sample_size_n (n_y = n_x);<br>no MPI — single GPU</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">auto-detected in worker: data.shape[2] → sample_height_n (n_z);<br>data.shape[3] → sample_size_n (n_y = n_x)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">ref3D_tomo.shape = (n_sli, n_row, n_col)</td>
     </tr>
     <tr style="border-bottom:1px solid #e2e8f0; background:#fffbeb;">
@@ -546,9 +548,9 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Scan param.</span></td>
       <td style="padding:6px 10px; color:#374151;">Which chemical elements to reconstruct and which FL lines to include. Drives all xraylib lookups and sets n_element, n_lines.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">NumElement (scalar);<br>BindingEnergy(NumElement) — emission energies;<br>MU_e(NumElement,1,NumElement+1) — all atten coeffs</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">element_symbols → this_aN_dic = {'Ca':20,'Sc':21};<br>element_lines_roi; n_line_group_each_element</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">element_symbols → this_aN_dic (name→Z via xraylib);<br>element_lines_roi; n_line_group_each_element</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">element_symbols → elem_type list (e.g. ['Zr','La','Hf']);<br>passed to get_atten_coef(), generate_H()</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">worker auto-detects from HDF5 elements dataset;<br>element_symbols (GUI tile selection, e.g. "Ca, Ca_L, Sc") filters element_lines_roi;<br>→ this_aN_dic; element_lines_roi; n_line_group_each_element</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">worker auto-detects from HDF5 elements dataset;<br>element_symbols (GUI tile selection) filters element_lines_roi;<br>→ this_aN_dic (name→Z via xraylib); element_lines_roi; n_line_group_each_element</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">element_symbols (GUI tiles) → elem_type list;<br>passed to get_atten_coef(), generate_H()</td>
     </tr>
 
     <!-- ══ SECTION: Physical constants ══ -->
@@ -558,18 +560,18 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#f1f5f9;color:#475569;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Physical const.</span></td>
       <td style="padding:6px 10px; color:#374151;">Mass attenuation coefficient of element e at probe energy E_p (cm²/g). Governs Beer-Lambert probe attenuation A through the sample.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">MU_e(e, 1, end) — last slice = beam energy;<br>from pre-loaded xRayLib*.mat tables (not xraylib)</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">probe_attCS_ls = xlib_np.CS_Total(aN_ls, probe_energy);<br>shape (n_elem,)</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">probe_attCS_ls = xlib_np.CS_Total(aN_ls, probe_energy)</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">cs[f'{elem}-x'] = xraylib.CS_Total(Z, XEng)</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">mu_probe = xlib_np.CS_Total(aN_ls, probe_energy);<br>shape (n_elem,)</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">mu_probe = xlib_np.CS_Total(aN_ls, probe_energy)</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">mu_probe[i] = xraylib.CS_Total(Z_i, XEng);<br>shape (n_elem,)</td>
     </tr>
     <tr style="border-bottom:1px solid #e2e8f0; background:#fafafa;">
       <td style="padding:6px 10px; font-family:serif; font-style:italic; white-space:nowrap;">μ̃<sup>E<sub>l</sub></sup><sub>e</sub></td>
       <td style="padding:6px 8px;"><span style="background:#f1f5f9;color:#475569;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Physical const.</span></td>
       <td style="padding:6px 10px; color:#374151;">Mass attenuation coefficient of element e at fluorescence energy E_l (cm²/g). Governs self-absorption B — how strongly each element absorbs the emitted XRF photons.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">MU_e(e, 1, 1:NumElement) — first NumElement slices;<br>= attenuation at each element's FL energy</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">FL_line_attCS_ls = xlib_np.CS_Total(aN_ls, fl_energy);<br>shape (n_elem, n_lines)</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">FL_line_attCS_ls = xlib_np.CS_Total(aN_ls, fl_energy);<br>shape (n_elem, n_lines) → lac tensor</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">cs[f'{ei}-{ej}'] = xraylib.CS_Total(Z_i, em_E[ej]);<br>used in cal_atten_3D → atten_xrf</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">mu_fl = xlib_np.CS_Total(aN_ls, fl_energy);<br>shape (n_elem, n_lines)</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">mu_fl = xlib_np.CS_Total(aN_ls, fl_energy);<br>shape (n_elem, n_lines) → lac tensor</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">mu_fl[i, j] = xraylib.CS_Total(Z_i, em_E[ej]);<br>shape (n_elem, n_elem) → cal_atten_3D</td>
     </tr>
     <tr style="border-bottom:1px solid #e2e8f0;">
       <td style="padding:6px 10px; font-family:serif; font-style:italic; white-space:nowrap;">τ<sup>E<sub>p</sub></sup><sub>l,e</sub></td>
@@ -603,9 +605,9 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#f1f5f9;color:#475569;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Physical const.</span></td>
       <td style="padding:6px 10px; color:#374151;">Fluorescence line energies for each element (K, L, M shells). Used to look up μ at FL energy, compute τ, and identify which detector channels correspond to each element.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">E_l (emission energies in M_e)</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">fl_all_lines_dic["fl_energy"];<br>from MakeFLlinesDictionary_manual() — shared with Panpan</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">fl_all_lines_dic["fl_energy"];<br>from MakeFLlinesDictionary_manual()</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">em_E dict (keV) — from load_param();<br>em_eng list</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">fl_all_lines_dic["fl_energy"] from MakeFLlinesDictionary_manual();<br>GUI tile E field → emission_energy → fl_energy_override{(sym,shell):keV};<br>overrides xraylib default per (element, shell) pair</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">fl_all_lines_dic["fl_energy"] from MakeFLlinesDictionary_manual();<br>GUI tile E field → emission_energy → fl_energy_override{(sym,shell):keV};<br>overrides xraylib default per (element, shell) pair</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">GUI tile E field → emission_energy → em_E (keV);<br>used in mu_fl = xraylib.CS_Total(Z, em_E)</td>
     </tr>
 
     <!-- ══ SECTION: Derived quantities ══ -->
@@ -624,8 +626,8 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 8px;"><span style="background:#d1fae5;color:#065f46;padding:2px 7px;border-radius:8px;font-size:0.73rem;font-weight:600;white-space:nowrap;">Derived f(X)</span></td>
       <td style="padding:6px 10px; color:#374151;">Linear attenuation coefficient map — product of μ̃ × X for each voxel. Intermediate used to compute both A (probe attenuation) and B (self-absorption). Frozen per outer iteration.</td>
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;"><em>implicit (μ × W product in Eqs. 6–7)</em></td>
-      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">lac_fixed = W.detach() × FL_line_attCS_ls;<br>frozen per outer epoch (no gradient through SA)</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">lac = X_ap_rot.view(…) × FL_line_attCS_ls.view(…);<br>shape (n_elem, n_lines, n_voxel_batch, n_voxel)</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">lac_fixed = W.detach() × mu_fl;<br>frozen per outer epoch (no gradient through SA)</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">lac = X_ap_rot.view(…) × mu_fl.view(…);<br>shape (n_elem, n_lines, n_voxel_batch, n_voxel)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">atten_fl from cal_atten_3D() — angle-by-angle;<br>μ × C integrated along FL path per voxel</td>
     </tr>
     <tr style="border-bottom:1px solid #e2e8f0; background:#f0fdf4;">
@@ -671,7 +673,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;"><em>implicit via SelfInd{n,i,v} cell arrays;<br>GlobalInd{n,i} gives ray–voxel pairs;<br>InTens/OutTens encode pre-computed attenuation</em></td>
       <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;"><em>implicit — no explicit H matrix;<br>same physics as PPM.forward() with frozen SA</em></td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;"><em>implicit in PPM.forward() — no explicit H matrix</em></td>
-      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">H_tot = generate_H(elem, ref3D_tomo, sli, angle_list);<br>shape (n_col × n_angles, n_row × n_col);<br>stored per slice per element via _generate_H_jit</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><b>numba-CUDA</b>: H_tot built explicitly per slice via cuda_generate_H_single_slice; shape (n_ang × n_col, n_row × n_col); ~3.4 GB/elem on GPU.<br><b>TorchCore</b>: no explicit H — forward/backproject use F.affine_grid + F.grid_sample rotation; atten4D (n_ang, n_sli, n_row, n_col) held in RAM.</td>
     </tr>
     <tr style="border-bottom:1px solid #e2e8f0; background:#f0fdf4;">
       <td style="padding:6px 10px; font-family:serif; font-style:italic; white-space:nowrap;">φ / Loss</td>
@@ -692,7 +694,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">W (prod(m)×NumElement) updated by fminunc<br>via sfun_XRF_For.m / sfun_Tensor_Joint.m;<br>W<sup>i</sup> frozen each outer iter during TN inner solve</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">W updated by optimizer.step(closure);<br>L-BFGS with strong Wolfe line search</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">X — read/written to f_recon_grid.h5 each angle;<br>updated_minibatch = model.xp.detach()</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">A_old / A_new in mlem_matrix();<br>img2D → img_cor (corrected 2D slice)</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><b>numba-CUDA</b>: A_old/A_new in mlem_cuda(); img2D per slice → img_cor.<br><b>TorchCore</b>: X tensor (n_sli, n_row, n_col) on GPU; updated in-place each mlem_torch() iteration.</td>
     </tr>
     <tr style="border-bottom:1px solid #e2e8f0; background:#f0f9ff;">
       <td style="padding:6px 10px; font-family:serif; font-style:italic; white-space:nowrap;">∂φ/∂X</td>
@@ -740,7 +742,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;">MaxIter in fminunc options (inner TN);<br>outer loop counter in opt.m / optXRF.m;<br>n_outer ≈ 3 outer iters (Algorithm 1)</td>
       <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">n_outer_epochs × lbfgs_n_iter inner steps;<br>save_every_n_epochs for checkpoints</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">n_epochs — save_every_n_epochs for checkpointing</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;">n_iter — mlem_matrix(img2D, H, I, n_iter=n_iter)</td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><b>numba-CUDA</b>: corr_n_iter → mlem_cuda(X, H_tot, I, n_iter).<br><b>TorchCore</b>: corr_n_iter → mlem_torch(img3D, atten4D, I_obs, rot_angles, n_iter, device).</td>
     </tr>
     <tr style="border-bottom:1px solid #e2e8f0; background:#faf5ff;">
       <td style="padding:6px 10px; font-family:serif; font-style:italic; white-space:nowrap;">minibatch</td>
@@ -749,7 +751,7 @@ _VARIABLE_TABLE = """
       <td style="padding:6px 10px; font-family:monospace; color:#065f46; font-size:0.76rem;"><em>not explicit — full volume per outer iteration</em></td>
       <td style="padding:6px 10px; font-family:monospace; color:#7e22ce; font-size:0.76rem;">minibatch_size (P-matrix batches from HDF5);<br>gradient accumulated over all batches before step</td>
       <td style="padding:6px 10px; font-family:monospace; color:#2563eb; font-size:0.76rem;">minibatch_size (rows per rank per angle);<br>n_batch = (n_z × n_x) / (n_ranks × minibatch_size)</td>
-      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><em>processed slice-by-slice (sli index);<br>parallelism via multiprocessing Pool</em></td>
+      <td style="padding:6px 10px; font-family:monospace; color:#7c3aed; font-size:0.76rem;"><b>numba-CUDA</b>: slice-by-slice (sli index); 1 GPU thread per slice sequentially.<br><b>TorchCore</b>: all n_sli slices batched simultaneously on GPU — no slice loop in MLEM.</td>
     </tr>
     <tr style="border-bottom:1px solid #e2e8f0; background:#faf5ff;">
       <td style="padding:6px 10px; font-family:serif; font-style:italic; white-space:nowrap;">X<sup>(0)</sup></td>
@@ -1052,8 +1054,8 @@ def create_method_explanation_page():
                         "# FL_correction_core.py — per element per slice\n"
                         "# Build attenuated Radon matrix H\n"
                         "atten = cal_atten_with_direction(img4D, cs, param)\n"
-                        "H = generate_H(elem, ref3D_tomo, sli, angle_list, file_path=...)\n"
-                        "I = generate_I(elem, ref3D_tomo, sli, angle_list, file_path=...)\n"
+                        "H = generate_H(elem, ref3D_tomo, sli, rot_angles, file_path=...)\n"
+                        "I = generate_I(elem, ref3D_tomo, sli, rot_angles, file_path=...)\n"
                         "\n"
                         "# MLEM iterative solve  (GPU: mlem_cuda via numba @cuda.jit)\n"
                         "C_corrected = mlem_matrix(img2D, H, I, n_iter=n_iter)\n"

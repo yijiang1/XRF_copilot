@@ -25,9 +25,9 @@ def read_projection(angle_id, fpath_atten, elem):
     return img_prj
 
 
-def read_attenuation_at_all_angle(angle_list, fpath_atten, elem):
+def read_attenuation_at_all_angle(rot_angles, fpath_atten, elem):
     print('reading attenuation files ...')
-    n = len(angle_list)
+    n = len(rot_angles)
     for i in trange(n):
         tmp = read_attenuation(i, fpath_atten, elem)
         if i == 0: 
@@ -66,10 +66,10 @@ def save_recon(fn_root, recon_cor, elem_type, iter_id):
         io.imsave(fsave_tiff, recon_cor[i].astype(np.float32))
 
 
-def inspect_recon(recon_raw, iter_id, fn_root, elem, angle_list, ang_idx=0, sli=None):
+def inspect_recon(recon_raw, iter_id, fn_root, elem, rot_angles, ang_idx=0, sli=None):
     fpath_atten = fn_root + f'/Angle_prj_{iter_id:02d}'
-    ang = angle_list[ang_idx]
-    n = len(angle_list)
+    ang = rot_angles[ang_idx]
+    n = len(rot_angles)
     s_tomo = recon_raw.shape
     img_raw_rot = rot3D(recon_raw, ang)
     recon_correction = read_recon(fn_root+'/recon', iter_id, elem)
@@ -107,7 +107,7 @@ def inspect_recon(recon_raw, iter_id, fn_root, elem, angle_list, ang_idx=0, sli=
     for i in range(n):
         tmp = io.imread(fn_sino_raw[i])[sli]
         sino_raw[i] = tmp.copy()
-        tmp_rot = rot3D(recon_correction[sli], angle_list[i])
+        tmp_rot = rot3D(recon_correction[sli], rot_angles[i])
         sino_cor[i] = np.sum(tmp_rot, axis=1)
 
     plt.subplot(2,3,3);    plt.imshow(sino_raw, cmap='viridis');    plt.colorbar()

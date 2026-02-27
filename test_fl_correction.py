@@ -49,16 +49,16 @@ crop_x_end     = 500
 
 with h5py.File(fn_data, "r") as f:
     img_all    = np.array(f["data"])
-    angle_list = np.array(f["thetas"])
+    rot_angles = np.array(f["thetas"])
 
 print(f"    Full data shape: {img_all.shape}")  # (8, 53, 301, 601)
 
 img_all = img_all[elem_start_idx:]
 s = img_all.shape
 img_all = img_all[:, :, : s[2] // b * b, : s[3] // b * b]
-theta        = angle_list / 180.0 * np.pi
+theta        = rot_angles / 180.0 * np.pi
 theta_tomopy = -theta
-print(f"    After slice: {img_all.shape}, n_angles={len(angle_list)}")
+print(f"    After slice: {img_all.shape}, n_angles={len(rot_angles)}")
 
 # ── Step 3: Load parameters ───────────────────────────────────────────────────
 print("\n[3] Loading parameters...")
@@ -69,7 +69,7 @@ em_cs     = param["em_cs"]
 M         = param["M"]
 rho       = param["rho"]
 pix       = param["pix"]
-cs        = core.get_atten_coef(elem_type, param["XEng"], param["em_E"])
+mu_probe, mu_fl = core.get_atten_coef(elem_type, param["XEng"], param["em_E"])
 param["pix"] *= b
 print(f"    Elements ({n_elem}): {elem_type}")
 print(f"    Pixel size (binned): {param['pix']} nm")
@@ -162,7 +162,7 @@ recon_cor = FL.rm_boarder(recon_cor, 5)
 
 print("    Computing attenuation (this may take a few minutes)...")
 core.cal_and_save_atten_prj(
-    param, cs, recon_cor, angle_list, ref_prj,
+    param, mu_probe, mu_fl, recon_cor, rot_angles, ref_prj,
     fsave=fsave_iter_1, align_flag=False, enable_scale=False, num_cpu=num_cpu,
 )
 print(f"    Attenuation done in {time.time() - ts:.1f}s")
@@ -172,7 +172,7 @@ for i, elem in enumerate(elem_type):
     t0 = time.time()
     ref_tomo = np.ones(recon_cor[i].shape)
     cor = core.cuda_absorption_correction_wrap(
-        elem, ref_tomo, angle_list, fsave_iter_1, 16, True, fpath_save
+        elem, ref_tomo, rot_angles, fsave_iter_1, 16, True, fpath_save
     )
     recon_cor[i] = FL.rm_boarder(cor, 5)
     print(f"    {elem}: {time.time() - t0:.1f}s")
@@ -204,5 +204,79 @@ for i, ele in enumerate(elem_type):
     print(f"    {ele:4s}: max_ref={max_ref:.4e}  max_diff={max_diff:.4e}  "
           f"rel_diff={rel_diff:.2%}  corr={corr:.6f}")
 
-print("\n[✓] Test complete!")
+print("\n[✓] numba-CUDA test complete!")
 print(f"    Results saved to: {tmp_out}")
+
+# ── Step 10: Torch path ───────────────────────────────────────────────────────
+print("\n" + "=" * 60)
+print("[10] Testing TorchCore (PyTorch MLEM, in-memory attenuation)...")
+print("=" * 60)
+
+import torch
+from src.fl_correction.FL_correction_torch import TorchCore
+
+torch_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"    torch device: {torch_device}")
+
+torch_core = TorchCore()
+torch_core.load_global_mask(mask3D)
+
+# Start from same initial state (before correction)
+recon_cor_t = recon_bin.copy()
+recon_cor_t = torch_core.smooth_filter(recon_cor_t, 3)
+recon_cor_t = FL.rm_boarder(recon_cor_t, 5)
+
+RESULT_DIR_TORCH = os.path.join(
+    "/mnt/micdata3/XRF_tomography/testing_ground/results",
+    "fl_correction_torch",
+)
+os.makedirs(RESULT_DIR_TORCH, exist_ok=True)
+
+ts_t = time.time()
+print("    Computing attenuation (torch path, same CPU code as numba path)...")
+atten_by_elem, prj_aligned = torch_core.cal_and_save_atten_prj_torch(
+    param, mu_probe, mu_fl, recon_cor_t, rot_angles, ref_prj,
+    fsave=None, align_flag=False, enable_scale=False, num_cpu=num_cpu,
+)
+print(f"    Attenuation done in {time.time() - ts_t:.1f}s")
+
+print("    Running torch MLEM per element...")
+for i, elem in enumerate(elem_type):
+    t0 = time.time()
+    ref_tomo     = np.ones(recon_cor_t[i].shape)
+    I_obs_elem   = np.transpose(prj_aligned[i], (1, 0, 2))   # (n_sli, n_ang, n_col)
+    atten4D_elem = atten_by_elem[elem]                         # (n_ang, n_sli, n_row, n_col)
+    cor = torch_core.cuda_absorption_correction_torch(
+        elem, ref_tomo, atten4D_elem, I_obs_elem,
+        rot_angles, 16, torch_device,
+    )
+    recon_cor_t[i] = FL.rm_boarder(cor, 5)
+    print(f"    {elem}: {time.time() - t0:.1f}s")
+
+FL.save_recon(RESULT_DIR_TORCH, recon_cor_t, elem_type, 1)
+print(f"    Torch iteration 1 done in {time.time() - ts_t:.1f}s total")
+
+# Compare torch output with reference
+print("\n[10b] Comparing torch iter-1 output with reference recon_01.h5...")
+our_torch_file = os.path.join(RESULT_DIR_TORCH, "recon", "recon_01.h5")
+with h5py.File(our_torch_file, "r") as f:
+    torch_data = {ele: np.array(f[ele]) for ele in elem_type}
+
+for i, ele in enumerate(elem_type):
+    ref_elem   = ref_data[ele]
+    trch_elem  = torch_data[ele]
+    max_ref    = np.max(np.abs(ref_elem))
+    max_diff   = np.max(np.abs(ref_elem - trch_elem))
+    rel_diff   = max_diff / max_ref if max_ref > 0 else 0.0
+    corr_ref   = float(np.corrcoef(ref_elem.ravel(), trch_elem.ravel())[0, 1])
+    # Compare torch vs numba-CUDA
+    cuda_elem  = our_data[ele]
+    corr_cuda  = float(np.corrcoef(cuda_elem.ravel(), trch_elem.ravel())[0, 1])
+    print(
+        f"    {ele:4s}: corr(vs ref)={corr_ref:.4f}  "
+        f"corr(torch vs cuda)={corr_cuda:.4f}  "
+        f"rel_diff={rel_diff:.2%}"
+    )
+
+print("\n[✓] Torch test complete!")
+print(f"    Results saved to: {RESULT_DIR_TORCH}")

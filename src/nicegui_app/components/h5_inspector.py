@@ -477,19 +477,19 @@ window._clearCropRect = window._clearCropRect || function(containerId) {
 
 # ── Thread-pool helpers ───────────────────────────────────────────────────────
 
-def _read_metadata(filepath: str) -> dict:
+def _read_metadata(filepath: str, data_key: str = "data", elements_key: str = "elements", thetas_key: str = "thetas") -> dict:
     with h5py.File(filepath, "r") as f:
-        shape = tuple(f["data"].shape)   # (n_ch, n_ang, ny, nx)
+        shape = tuple(f[data_key].shape)   # (n_ch, n_ang, ny, nx)
         n_ch  = shape[0]
 
-        if "elements" in f:
-            elements = [e.decode("utf-8") if isinstance(e, bytes) else str(e) for e in f["elements"][...]]
+        if elements_key in f:
+            elements = [e.decode("utf-8") if isinstance(e, bytes) else str(e) for e in f[elements_key][...]]
         elif "channels" in f:
             elements = [e.decode("utf-8") if isinstance(e, bytes) else str(e) for e in f["channels"][...]]
         else:
             elements = [f"Ch {i}" for i in range(n_ch)]
 
-        thetas = f["thetas"][...].tolist() if "thetas" in f else list(range(shape[1]))
+        thetas = f[thetas_key][...].tolist() if thetas_key in f else list(range(shape[1]))
         names  = (
             [n.decode("utf-8") if isinstance(n, bytes) else str(n) for n in f["names"][...]]
             if "names" in f else []
@@ -497,10 +497,10 @@ def _read_metadata(filepath: str) -> dict:
     return {"elements": elements, "thetas": thetas, "shape": shape, "names": names}
 
 
-def _read_slice(filepath: str, ch_idx: int, ang_idx: int) -> tuple:
+def _read_slice(filepath: str, ch_idx: int, ang_idx: int, data_key: str = "data") -> tuple:
     """Read one 2D slice and render to a Viridis PNG data URL."""
     with h5py.File(filepath, "r") as f:
-        arr = np.array(f["data"][ch_idx, ang_idx, :, :])
+        arr = np.array(f[data_key][ch_idx, ang_idx, :, :])
     vmin, vmax, vmean = float(arr.min()), float(arr.max()), float(arr.mean())
     ny, nx = arr.shape
 
@@ -517,7 +517,16 @@ def _read_slice(filepath: str, ch_idx: int, ang_idx: int) -> tuple:
 
 # ── Component ─────────────────────────────────────────────────────────────────
 
-def create_h5_inspector(fn_root_el, fn_data_el, on_elements_loaded=None, on_crop_changed=None, pixel_size_nm_ref=None) -> None:
+def create_h5_inspector(
+    fn_root_el,
+    fn_data_el,
+    on_elements_loaded=None,
+    on_crop_changed=None,
+    pixel_size_nm_ref=None,
+    data_key: str = "data",
+    elements_key: str = "elements",
+    thetas_key: str = "thetas",
+) -> None:
     """Inline HDF5 data inspector (load button + image viewer).
 
     Args:
@@ -526,14 +535,24 @@ def create_h5_inspector(fn_root_el, fn_data_el, on_elements_loaded=None, on_crop
         on_elements_loaded: Optional callable(names: list[str]) called after file
             load with channel/element names.
         on_crop_changed: Optional callable(x1, y1, x2, y2) called when the user
-            draws or clears a crop rectangle on the image.
+            draws or clears a crop rectangle on the image. When None, crop UI is
+            omitted entirely.
         pixel_size_nm_ref: Optional list[widget] — if provided, pixel_size_nm_ref[0]
             is a NiceGUI number widget whose value (nm/pixel) is injected into JS as
             container._pixelSizeNm so the ruler shows physical distance.
+        data_key: HDF5 dataset path for the data array (default: "data" for BNL;
+            use "exchange/data" for APS exchange format).
+        elements_key: HDF5 dataset path for channel/element names (default: "elements";
+            use "exchange/elements" for APS exchange format).
+        thetas_key: HDF5 dataset path for rotation angles (default: "thetas";
+            use "exchange/theta" for APS exchange format).
     """
+    use_crop = on_crop_changed is not None
+
     ui.add_head_html(_ZOOM_JS)
     ui.add_head_html(_RULER_JS)
-    ui.add_head_html(_CROP_JS)
+    if use_crop:
+        ui.add_head_html(_CROP_JS)
 
 
     # ── Mutable state ──────────────────────────────────────────────
@@ -571,7 +590,7 @@ def create_h5_inspector(fn_root_el, fn_data_el, on_elements_loaded=None, on_crop
         angle_lbl        = ui.label("—").classes("text-sm text-gray-500 w-44 shrink-0")
     controls.set_visibility(False)
 
-    # ── Image toolbar (zoom buttons + ruler + crop) ───────────────
+    # ── Image toolbar (zoom buttons + ruler + optional crop) ─────
     toolbar = ui.row().classes("w-full items-center gap-1 flex-wrap")
     with toolbar:
         ui.button(icon="zoom_out",   on_click=lambda: ui.run_javascript(f"window._zoomTo('{_cid()}', 1/1.4)")).props("round dense flat size=sm").classes("text-gray-500")
@@ -580,19 +599,25 @@ def create_h5_inspector(fn_root_el, fn_data_el, on_elements_loaded=None, on_crop
         ui.separator().props("vertical").style("height:20px; margin: 0 4px;")
         ruler_sw = ui.switch("Ruler", value=False).props("dense").classes("text-sm text-gray-500")
         ui.button("Clear", icon="clear", on_click=lambda: ui.run_javascript(f"window._clearRuler('{_cid()}')")).props("flat dense no-caps size=sm color=grey")
-        ui.separator().props("vertical").style("height:20px; margin: 0 4px;")
-        crop_sw = ui.switch("Crop", value=False).props("dense").classes("text-sm text-gray-500")
-        ui.button("Clear Crop", icon="crop_free", on_click=lambda: ui.run_javascript(f"window._clearCropRect('{_cid()}')")).props("flat dense no-caps size=sm color=grey")
+        if use_crop:
+            ui.separator().props("vertical").style("height:20px; margin: 0 4px;")
+            crop_sw = ui.switch("Crop", value=False).props("dense").classes("text-sm text-gray-500")
+            ui.button("Clear Crop", icon="crop_free", on_click=lambda: ui.run_javascript(f"window._clearCropRect('{_cid()}')")).props("flat dense no-caps size=sm color=grey")
+        else:
+            crop_sw = None
     toolbar.set_visibility(False)
 
     # ── Crop readout label (shown below toolbar when crop is set) ───
-    crop_lbl = ui.label("").classes("text-xs font-mono text-amber-700 w-full")
-    crop_lbl.set_visibility(False)
+    if use_crop:
+        crop_lbl = ui.label("").classes("text-xs font-mono text-amber-700 w-full")
+        crop_lbl.set_visibility(False)
+    else:
+        crop_lbl = None
 
     # ── Zoom container + image ─────────────────────────────────────
     # Plain <img> injected via JS (avoids q-img aspect-ratio complications).
     # width:100%; height:auto gives correct natural aspect ratio automatically.
-    with ui.element("div").style("width:75%;overflow:hidden;") as zoom_wrap:
+    with ui.element("div").style("width:100%;max-width:600px;overflow:hidden;") as zoom_wrap:
         pass
     zoom_wrap.set_visibility(False)
 
@@ -616,7 +641,8 @@ def create_h5_inspector(fn_root_el, fn_data_el, on_elements_loaded=None, on_crop
         )
         await ui.run_javascript(f"window._initZoomable('{cid}')")
         await ui.run_javascript(f"window._initRuler('{cid}')")
-        await ui.run_javascript(f"window._initCrop('{cid}')")
+        if use_crop:
+            await ui.run_javascript(f"window._initCrop('{cid}')")
 
     ui.timer(0.5, _init_zoom_js, once=True)
 
@@ -639,7 +665,7 @@ def create_h5_inspector(fn_root_el, fn_data_el, on_elements_loaded=None, on_crop
         theta   = meta["thetas"][ang_idx]  if meta["thetas"]   else ang_idx
         try:
             data_url, vmin, vmax, vmean, ny, nx = await run.io_bound(
-                _read_slice, fpath, ch_idx, ang_idx
+                _read_slice, fpath, ch_idx, ang_idx, data_key
             )
             # Preload the new image off-screen; swap the plain <img> src only
             # once fully decoded — no flash, no Quasar aspect-ratio complications.
@@ -656,6 +682,7 @@ def create_h5_inspector(fn_root_el, fn_data_el, on_elements_loaded=None, on_crop
                     f"tmp.src='{data_url}';"
                     f"c._pixelMeta={{image_width:{nx},image_height:{ny}}};"
                     f"c._pixelSizeNm={_get_pixel_size_nm()};"
+                    f"c.style.maxWidth=Math.max(256,Math.min(600,{nx}*5))+'px';"
                     f"}})()"
                 )
             stats_lbl.set_text(
@@ -681,7 +708,7 @@ def create_h5_inspector(fn_root_el, fn_data_el, on_elements_loaded=None, on_crop
         status_lbl.classes(remove="text-green-600 text-red-500", add="text-gray-400")
 
         try:
-            result = await run.io_bound(_read_metadata, fpath)
+            result = await run.io_bound(_read_metadata, fpath, data_key, elements_key, thetas_key)
             meta.update(result)
             meta["loaded"] = True
 
@@ -797,14 +824,15 @@ def create_h5_inspector(fn_root_el, fn_data_el, on_elements_loaded=None, on_crop
         y1 = int(detail.get("y1", 0))
         x2 = int(detail.get("x2", -1))
         y2 = int(detail.get("y2", -1))
-        if x2 < 0:
-            crop_lbl.set_text("")
-            crop_lbl.set_visibility(False)
-        else:
-            crop_lbl.set_text(
-                f"Crop region:  X [{x1} → {x2}]  Y [{y1} → {y2}]  px"
-            )
-            crop_lbl.set_visibility(True)
+        if crop_lbl is not None:
+            if x2 < 0:
+                crop_lbl.set_text("")
+                crop_lbl.set_visibility(False)
+            else:
+                crop_lbl.set_text(
+                    f"Crop region:  X [{x1} → {x2}]  Y [{y1} → {y2}]  px"
+                )
+                crop_lbl.set_visibility(True)
         if on_crop_changed is not None:
             on_crop_changed(x1, y1, x2, y2)
 
@@ -814,5 +842,7 @@ def create_h5_inspector(fn_root_el, fn_data_el, on_elements_loaded=None, on_crop
     prev_btn.on_click(on_prev)
     next_btn.on_click(on_next)
     ruler_sw.on_value_change(on_ruler_change)
-    crop_sw.on_value_change(on_crop_change)
-    zoom_wrap.on("cropdrawn", on_crop_drawn)
+    if crop_sw is not None:
+        crop_sw.on_value_change(on_crop_change)
+    if use_crop:
+        zoom_wrap.on("cropdrawn", on_crop_drawn)

@@ -4,10 +4,8 @@ import argparse
 from nicegui import ui
 from .config import HOST, PORT, BACKEND_API_KEY
 from .pages.simulation import create_simulation_page
-from .pages.reconstruction import create_reconstruction_page
-from .pages.fl_correction import create_fl_correction_page
+from .pages.reconstruction_all import create_reconstruction_all_page
 from .pages.method_explanation import create_method_explanation_page
-from .pages.di_reconstruction import create_di_reconstruction_page
 
 # Runtime API key (set via CLI, overrides .env)
 _runtime_api_key: str = ""
@@ -129,10 +127,8 @@ def _create_nav_header(active_page: str, key: str):
             ui.label("XRF Copilot").classes("text-white font-bold text-lg")
 
         nav_items = [
-            ("Simulation", "science", "simulation", f"/{key}"),
-            ("Reconstruction (Panpan)", "auto_fix_high", "reconstruction", f"/{key}/reconstruction"),
-            ("Reconstruction (Di)", "analytics", "di_reconstruction", f"/{key}/di-reconstruction"),
-            ("Reconstruction (BNL)", "biotech", "fl_correction", f"/{key}/fl-correction"),
+            ("Reconstruction", "layers", "reconstruction_all", f"/{key}"),
+            ("Simulation", "science", "simulation", f"/{key}/simulation"),
             ("Method", "menu_book", "method_explanation", f"/{key}/method-bnl"),
         ]
         for label, icon, page_id, path in nav_items:
@@ -154,48 +150,26 @@ def index_bare():
     _unauthorized()
 
 
-@ui.page("/{key}", title="XRF Simulation Copilot", favicon=_FAVICON)
+@ui.page("/{key}", title="XRF Reconstruction", favicon=_FAVICON)
 def index(key: str):
-    """Main simulation page, keyed by API key in URL."""
+    """Landing page — reconstruction (BNL, Panpan, Wendy)."""
+    if key != _get_api_key():
+        _unauthorized()
+        return
+    ui.query("body").classes("app-body")
+    _create_nav_header("reconstruction_all", key)
+    create_reconstruction_all_page(api_key=_get_api_key())
+
+
+@ui.page("/{key}/simulation", title="XRF Simulation Copilot", favicon=_FAVICON)
+def simulation(key: str):
+    """Simulation page."""
     if key != _get_api_key():
         _unauthorized()
         return
     ui.query("body").classes("app-body")
     _create_nav_header("simulation", key)
     create_simulation_page(api_key=_get_api_key())
-
-
-@ui.page("/{key}/reconstruction", title="XRF Reconstruction", favicon=_FAVICON)
-def reconstruction(key: str):
-    """XRF tomographic reconstruction page."""
-    if key != _get_api_key():
-        _unauthorized()
-        return
-    ui.query("body").classes("app-body")
-    _create_nav_header("reconstruction", key)
-    create_reconstruction_page(api_key=_get_api_key())
-
-
-@ui.page("/{key}/fl-correction", title="XRF FL Correction (BNL)", favicon=_FAVICON)
-def fl_correction(key: str):
-    """FL self-absorption correction page (BNL)."""
-    if key != _get_api_key():
-        _unauthorized()
-        return
-    ui.query("body").classes("app-body")
-    _create_nav_header("fl_correction", key)
-    create_fl_correction_page(api_key=_get_api_key())
-
-
-@ui.page("/{key}/di-reconstruction", title="Reconstruction (Di et al. 2017)", favicon=_FAVICON)
-def di_reconstruction(key: str):
-    """Di et al. 2017 XRF tomographic reconstruction page."""
-    if key != _get_api_key():
-        _unauthorized()
-        return
-    ui.query("body").classes("app-body")
-    _create_nav_header("di_reconstruction", key)
-    create_di_reconstruction_page(api_key=_get_api_key())
 
 
 @ui.page("/{key}/method-bnl", title="Method Explanation (BNL)", favicon=_FAVICON)
@@ -224,7 +198,8 @@ def run():
     if args.api_key:
         _runtime_api_key = args.api_key
         print(f"Backend API key set via --api-key flag.")
-        print(f"  → Open: http://{HOST}:{PORT}/{args.api_key}")
+        print(f"  → Open: http://{HOST}:{PORT}/{args.api_key}  (Reconstruction)")
+        print(f"          http://{HOST}:{PORT}/{args.api_key}/simulation")
 
     ui.run(
         host=HOST,

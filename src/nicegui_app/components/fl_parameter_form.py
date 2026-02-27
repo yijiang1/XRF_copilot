@@ -102,204 +102,273 @@ def _xraylib_density(z: int) -> float:
 class _ElementSelector:
     """Periodic-table tile selector for element channels.
 
-    Per-element values exposed as properties (only real elements, i.e. z is not None):
-      ``.value``               → comma-sep element names (selected)
-      ``.indices_value``       → comma-sep absolute HDF5 channel indices
-      ``.shell_value``         → comma-sep K/L shell per selected element
-      ``.density_value``       → comma-sep densities (g/cm³) per selected element
-      ``.emission_energy_value``→ comma-sep emission energies (keV) per selected element
+    One tile per unique element symbol.  Shell buttons (K / L / M) below
+    each tile indicate which shells are present in the HDF5 file; each
+    button is independently toggleable.  Clicking the tile toggles all
+    shells for that element.  Non-element channels (TFY, IC…) are skipped.
+
+    Public properties (values returned in HDF5 channel order):
+      ``.value``                → comma-sep HDF5 channel names for selected shells
+      ``.indices_value``        → comma-sep absolute HDF5 channel indices
+      ``.shell_value``          → comma-sep K/L/M shell per selected channel
+      ``.density_value``        → comma-sep element densities (one per selected channel)
+      ``.emission_energy_value``→ comma-sep emission energies (keV, per selected channel)
     """
 
     def __init__(self):
         self._all_names: list = []
-        self._states: dict = {}   # name → state dict
+        self._states: dict = {}           # sym → element state dict
+        self._channel_to_sym: dict = {}   # channel_name → (sym, shell)
 
-    # ── Value accessors ───────────────────────────────────────────────────────
+    # ── Value accessors (iterate _all_names for stable HDF5 order) ───────────
+
     @property
     def value(self) -> str:
-        return ", ".join(
-            n for n, st in self._states.items()
-            if st["val"] and st["z"] is not None
-        )
+        result = []
+        for name in self._all_names:
+            info = self._channel_to_sym.get(name)
+            if info is None:
+                continue
+            sym, shell = info
+            shell_state = self._states.get(sym, {}).get("shells", {}).get(shell)
+            if shell_state is not None and shell_state["val"]:
+                result.append(name)
+        return ", ".join(result)
 
     @property
     def indices_value(self) -> str:
-        return ", ".join(
-            str(i) for i, n in enumerate(self._all_names)
-            if self._states.get(n, {}).get("val", False)
-            and self._states.get(n, {}).get("z") is not None
-        )
+        result = []
+        for i, name in enumerate(self._all_names):
+            info = self._channel_to_sym.get(name)
+            if info is None:
+                continue
+            sym, shell = info
+            shell_state = self._states.get(sym, {}).get("shells", {}).get(shell)
+            if shell_state is not None and shell_state["val"]:
+                result.append(str(i))
+        return ", ".join(result)
 
     @property
     def shell_value(self) -> str:
-        return ", ".join(
-            st["shell"] for name, st in self._states.items()
-            if st["val"] and st["z"] is not None
-        )
+        result = []
+        for name in self._all_names:
+            info = self._channel_to_sym.get(name)
+            if info is None:
+                continue
+            sym, shell = info
+            shell_state = self._states.get(sym, {}).get("shells", {}).get(shell)
+            if shell_state is not None and shell_state["val"]:
+                result.append(shell)
+        return ", ".join(result)
 
     @property
     def density_value(self) -> str:
-        vals = []
-        for name, st in self._states.items():
-            if not (st["val"] and st["z"] is not None):
+        result = []
+        for name in self._all_names:
+            info = self._channel_to_sym.get(name)
+            if info is None:
                 continue
-            inp = st.get("density_inp")
+            sym, shell = info
+            elem_state = self._states.get(sym)
+            if elem_state is None:
+                continue
+            shell_state = elem_state["shells"].get(shell)
+            if shell_state is None or not shell_state["val"]:
+                continue
+            inp = elem_state.get("density_inp")
             v = inp.value if inp is not None else 0.0
-            vals.append(f"{v:.4g}" if v else "0")
-        return ", ".join(vals)
+            result.append(f"{v:.4g}" if v else "0")
+        return ", ".join(result)
 
     @property
     def emission_energy_value(self) -> str:
-        vals = []
-        for name, st in self._states.items():
-            if not (st["val"] and st["z"] is not None):
+        result = []
+        for name in self._all_names:
+            info = self._channel_to_sym.get(name)
+            if info is None:
                 continue
-            inp = st.get("emission_inp")
+            sym, shell = info
+            elem_state = self._states.get(sym)
+            if elem_state is None:
+                continue
+            shell_state = elem_state["shells"].get(shell)
+            if shell_state is None or not shell_state["val"]:
+                continue
+            inp = shell_state.get("emission_inp")
             v = inp.value if inp is not None else 0.0
-            vals.append(f"{v:.4g}" if v else "0")
-        return ", ".join(vals)
+            result.append(f"{v:.4g}" if v else "0")
+        return ", ".join(result)
 
     # ── Internal helpers ──────────────────────────────────────────────────────
-    @staticmethod
-    def _refresh(state: dict) -> None:
-        state["box"].style(replace=_box_style(state["bg"], state["val"]))
 
-    def _make_toggle(self, state: dict):
+    @staticmethod
+    def _refresh_box(elem_state: dict) -> None:
+        any_sel = any(s["val"] for s in elem_state["shells"].values())
+        elem_state["box"].style(replace=_box_style(elem_state["bg"], any_sel))
+
+    @staticmethod
+    def _refresh_shell_btn(shell_state: dict) -> None:
+        btn = shell_state.get("btn")
+        if btn is None:
+            return
+        if shell_state["val"]:
+            btn.props(remove="outline color=grey-5", add="color=teal-7 unelevated")
+        else:
+            btn.props(remove="color=teal-7 unelevated", add="outline color=grey-5")
+
+    def _make_elem_toggle(self, sym: str):
         def toggle():
-            state["val"] = not state["val"]
-            self._refresh(state)
+            elem_state = self._states[sym]
+            new_val = not any(s["val"] for s in elem_state["shells"].values())
+            for shell_state in elem_state["shells"].values():
+                shell_state["val"] = new_val
+                self._refresh_shell_btn(shell_state)
+            self._refresh_box(elem_state)
         return toggle
 
-    @staticmethod
-    def _apply_shell_style(state: dict) -> None:
-        active = state["shell"]
-        for btn, name in [(state.get("k_btn"), "K"), (state.get("l_btn"), "L")]:
-            if btn is None:
-                continue
-            if name == active:
-                btn.props(remove="outline color=grey-5", add="color=teal-7 unelevated")
-            else:
-                btn.props(remove="color=teal-7 unelevated", add="outline color=grey-5")
-
-    def _make_shell_toggle(self, state: dict, shell: str):
+    def _make_shell_toggle(self, sym: str, shell: str):
         def toggle():
-            state["shell"] = shell
-            self._apply_shell_style(state)
-            # Auto-update emission energy to match new shell
-            z = state.get("z")
-            e_inp = state.get("emission_inp")
-            if z is not None and e_inp is not None:
-                em_E = _xraylib_emission(z, shell)
-                if em_E:
-                    e_inp.set_value(round(em_E, 4))
+            elem_state = self._states[sym]
+            shell_state = elem_state["shells"][shell]
+            shell_state["val"] = not shell_state["val"]
+            self._refresh_shell_btn(shell_state)
+            self._refresh_box(elem_state)
         return toggle
 
     # ── Public API ────────────────────────────────────────────────────────────
+
     def set_value(self, s: str) -> None:
         requested = {x.strip() for x in s.split(",") if x.strip()}
-        for name, st in self._states.items():
-            new_val = name in requested
-            if st["val"] != new_val:
-                st["val"] = new_val
-                self._refresh(st)
+        for sym, elem_state in self._states.items():
+            for shell_state in elem_state["shells"].values():
+                new_val = shell_state["channel_name"] in requested
+                if shell_state["val"] != new_val:
+                    shell_state["val"] = new_val
+                    self._refresh_shell_btn(shell_state)
+            self._refresh_box(elem_state)
 
     def select_all(self, selected: bool = True) -> None:
-        for st in self._states.values():
-            if st["val"] != selected:
-                st["val"] = selected
-                self._refresh(st)
+        for sym, elem_state in self._states.items():
+            for shell_state in elem_state["shells"].values():
+                if shell_state["val"] != selected:
+                    shell_state["val"] = selected
+                    self._refresh_shell_btn(shell_state)
+            self._refresh_box(elem_state)
 
     def autofill_from_xraylib(self) -> None:
-        """Auto-populate density and emission energy from xraylib for all real elements."""
-        for name, st in self._states.items():
-            z = st.get("z")
+        """Auto-populate density and per-shell emission energies from xraylib."""
+        for sym, elem_state in self._states.items():
+            z = elem_state["z"]
             if z is None:
                 continue
-            shell = st.get("shell", "K")
-            em_E = _xraylib_emission(z, shell)
+            d_inp = elem_state.get("density_inp")
             density = _xraylib_density(z)
-            d_inp = st.get("density_inp")
-            e_inp = st.get("emission_inp")
             if d_inp is not None and density:
                 d_inp.set_value(round(density, 4))
-            if e_inp is not None and em_E:
-                e_inp.set_value(round(em_E, 4))
+            for shell, shell_state in elem_state["shells"].items():
+                em_E = _xraylib_emission(z, shell)
+                e_inp = shell_state.get("emission_inp")
+                if e_inp is not None and em_E:
+                    e_inp.set_value(round(em_E, 4))
 
     def populate(self, names: list, container) -> None:
-        """(Re-)build periodic-table tiles + K/L shell selectors + per-element inputs."""
+        """(Re-)build tiles — one per element with per-shell toggle buttons."""
         self._all_names = list(names)
         self._states.clear()
+        self._channel_to_sym.clear()
         container.clear()
+
+        # ── First pass: group channels by element symbol (first-appearance order) ──
+        elem_order: list = []
+        elem_channels: dict = {}   # sym → {shell: channel_name}
+        elem_info: dict = {}        # sym → (z, bg)
+
+        for name in names:
+            z, sym, sub, bg = _parse_channel(name)
+            if z is None:
+                continue   # skip non-elements (TFY, IC, …)
+            shell = sub if sub in ("K", "L", "M") else _default_shell(z)
+            if sym not in elem_channels:
+                elem_channels[sym] = {}
+                elem_order.append(sym)
+                elem_info[sym] = (z, bg)
+            elem_channels[sym][shell] = name
+            self._channel_to_sym[name] = (sym, shell)
+
         with container:
-            for name in names:
-                z, sym, sub, bg = _parse_channel(name)
-                default_shell = _default_shell(z)
-                state: dict = {
-                    "val": True, "box": None, "bg": bg, "z": z,
-                    "shell": default_shell,
-                    "k_btn": None, "l_btn": None,
-                    "density_inp": None, "emission_inp": None,
+            for sym in elem_order:
+                z, bg = elem_info[sym]
+                shells_map = elem_channels[sym]   # {shell: channel_name}
+
+                elem_state: dict = {
+                    "z": z, "bg": bg, "box": None,
+                    "density_inp": None,
+                    "shells": {
+                        shell: {
+                            "val": True,
+                            "channel_name": ch_name,
+                            "emission_inp": None,
+                            "btn": None,
+                        }
+                        for shell, ch_name in shells_map.items()
+                    },
                 }
-                self._states[name] = state
+                self._states[sym] = elem_state
 
                 with ui.column().classes("items-center").style("gap:4px;"):
                     # ── Periodic-table tile ───────────────────────────────────
                     with ui.element("div").style(
                         _box_style(bg, True)
-                    ).on("click", self._make_toggle(state)).classes("select-none") as box:
-                        state["box"] = box
+                    ).on("click", self._make_elem_toggle(sym)).classes("select-none") as box:
+                        elem_state["box"] = box
                         num_s = (
                             "font-size:9px;color:#333;width:100%;"
                             "text-align:left;padding-left:3px;line-height:1.3;margin:0;"
                         )
-                        ui.html(f'<p style="{num_s}">{z if z is not None else ""}</p>')
+                        ui.html(f'<p style="{num_s}">{z}</p>')
                         font = "17px" if len(sym) <= 2 else "11px"
                         sym_s = (
                             f"font-size:{font};font-weight:700;color:#111;"
                             "line-height:1.1;text-align:center;margin:0;"
                         )
                         ui.html(f'<p style="{sym_s}">{sym}</p>')
-                        if sub:
-                            sub_s = (
-                                "font-size:10px;color:#444;"
-                                "line-height:1.2;text-align:center;margin:0;"
-                            )
-                            ui.html(f'<p style="{sub_s}">{sub}</p>')
 
-                    # ── K / L shell toggle + per-element inputs (real elements only) ─
-                    if z is not None:
-                        with ui.row().classes("gap-0"):
-                            k_btn = ui.button(
-                                "K", on_click=self._make_shell_toggle(state, "K")
-                            ).props(
-                                "no-caps size=sm "
-                                + ("color=teal-7 unelevated" if default_shell == "K"
-                                   else "outline color=grey-5")
-                            ).style("min-width:26px;")
-                            l_btn = ui.button(
-                                "L", on_click=self._make_shell_toggle(state, "L")
-                            ).props(
-                                "no-caps size=sm "
-                                + ("color=teal-7 unelevated" if default_shell == "L"
-                                   else "outline color=grey-5")
-                            ).style("min-width:26px;")
-                            state["k_btn"] = k_btn
-                            state["l_btn"] = l_btn
+                    # ── Per-shell toggle buttons ──────────────────────────────
+                    with ui.row().classes("gap-0"):
+                        for shell in ("K", "L", "M"):
+                            if shell not in shells_map:
+                                continue
+                            btn = ui.button(
+                                shell, on_click=self._make_shell_toggle(sym, shell)
+                            ).props("no-caps size=sm color=teal-7 unelevated").style("min-width:26px;")
+                            elem_state["shells"][shell]["btn"] = btn
 
-                        density_inp = (
-                            ui.number(label="ρ (g/cm³)", value=0.0, step=0.001, min=0, format="%.3f")
-                            .props("dense outlined")
-                            .style("width:96px;")
-                            .tooltip(f"{sym} compound density (g/cm³)")
+                    # ── Shared density input ──────────────────────────────────
+                    density_inp = (
+                        ui.number(
+                            label="ρ (g/cm³)", value=0.0, step=0.001, min=0, format="%.3f",
                         )
+                        .props("dense outlined")
+                        .style("width:96px;")
+                        .tooltip(f"{sym} compound density (g/cm³)")
+                    )
+                    elem_state["density_inp"] = density_inp
+
+                    # ── Per-shell emission energy inputs ──────────────────────
+                    multi_shell = len(shells_map) > 1
+                    for shell in ("K", "L", "M"):
+                        if shell not in shells_map:
+                            continue
+                        e_label = f"E_{shell} (keV)" if multi_shell else "E (keV)"
                         emission_inp = (
-                            ui.number(label="E (keV)", value=0.0, step=0.001, min=0, format="%.4f")
+                            ui.number(
+                                label=e_label, value=0.0, step=0.001, min=0, format="%.4f",
+                            )
                             .props("dense outlined")
                             .style("width:96px;")
-                            .tooltip(f"{sym} Kα/Lα emission energy (keV)")
+                            .tooltip(f"{sym} {shell}-shell emission energy (keV)")
                         )
-                        state["density_inp"] = density_inp
-                        state["emission_inp"] = emission_inp
+                        elem_state["shells"][shell]["emission_inp"] = emission_inp
 
 
 class _ICSelector:

@@ -97,7 +97,7 @@ def _compute_SA_mb(
 
     Args:
         lac_rot: (n_elem, n_lines, n_voxel_mb, n_voxel_total) — frozen, no grad.
-                 = W_rot.detach() × FL_line_attCS_ls, expanded.
+                 = W_rot.detach() × mu_fl, expanded.
         P_mb:    (n_det, 3, dia_len_n * n_voxel_mb) path-length tensor.
                  Col 0: source voxel indices, col 1: intersecting voxel indices,
                  col 2: path lengths.
@@ -146,7 +146,7 @@ def _di_forward_mb(
     sample_size_cm: float,
     probe_intensity: float,
     probe_att: bool,
-    probe_attCS_ls: tc.Tensor,
+    mu_probe: tc.Tensor,
     detected_fl_unit_concentration: tc.Tensor,
     signal_attenuation_factor: float,
     det_solid_angle_ratio: float,
@@ -189,7 +189,7 @@ def _di_forward_mb(
 
     for j in range(n_element):
         if probe_att:
-            lac_j = W_rot_mb_3d[j] * probe_attCS_ls[j]  # (mb_z, N) — tracked
+            lac_j = W_rot_mb_3d[j] * mu_probe[j]  # (mb_z, N) — tracked
             lac_acc = tc.cumsum(lac_j, axis=1)  # (mb_z, N)
             lac_acc = tc.cat(
                 [tc.zeros(minibatch_size, 1, device=dev), lac_acc], dim=1
@@ -198,7 +198,7 @@ def _di_forward_mb(
 
         n_lines_j = n_line_group_each_element[j].item()
         fl_unit_j = detected_fl_unit_concentration[line_idx : line_idx + n_lines_j]
-        fl_map_j = W_rot_mb_flat[j].unsqueeze(0) * fl_unit_j  # (n_lines_j, n_voxel_mb) — tracked
+        fl_map_j = W_rot_mb_flat[j].unsqueeze(0) * fl_unit_j.unsqueeze(1)  # (1, n_voxel_mb) * (n_lines_j, 1) → (n_lines_j, n_voxel_mb)
         fl_map_tot[line_idx : line_idx + n_lines_j] = fl_map_j
         line_idx += n_lines_j
 
@@ -257,8 +257,8 @@ def reconstruct_di_xrftomo(
     XRT_ratio_dataset_idx: int = 3,
     scaler_counts_us_ic_dataset_idx: int = 1,
     scaler_counts_ds_ic_dataset_idx: int = 2,
-    theta_ls_dataset: str = "exchange/theta",
-    channel_names: str = "exchange/elements",
+    theta_ls_dataset: str = "rot_angles",
+    channel_names: str = "elements",
     # ── Di et al.-specific ──
     loss_type: str = "poisson",     # "poisson" or "ls"
     beta1_xrt: float = 1.0,         # XRT loss weight
@@ -275,6 +275,7 @@ def reconstruct_di_xrftomo(
     dev: tc.device = None,
     minibatch_size: int = 64,       # Z-rows per batch (same as Panpan)
     save_every_n_epochs: int = 1,
+    fl_energy_override: dict = None,
     progress_callback=None,
     fl_K=None, fl_L=None, fl_M=None,
 ):
@@ -331,9 +332,10 @@ def reconstruct_di_xrftomo(
         sample_size_cm,
         fl_line_groups=np.array(["K", "L", "M"]),
         fl_K=fl_K, fl_L=fl_L, fl_M=fl_M,
+        fl_energy_override=fl_energy_override,
     )
     n_lines = fl_all_lines_dic["n_lines"]
-    FL_line_attCS_ls = tc.as_tensor(
+    mu_fl = tc.as_tensor(
         xlib_np.CS_Total(aN_ls, fl_all_lines_dic["fl_energy"])
     ).float().to(dev)  # (n_elem, n_lines)
     detected_fl_unit_concentration = tc.as_tensor(
@@ -344,15 +346,15 @@ def reconstruct_di_xrftomo(
     ).to(dev)
 
     # ── Probe attenuation cross-sections ──
-    probe_attCS_ls = tc.as_tensor(
+    mu_probe = tc.as_tensor(
         xlib_np.CS_Total(aN_ls, probe_energy).flatten()
     ).to(dev)  # (n_elem,)
 
     # ── Rotation angles ──
-    theta_ls = tc.from_numpy(
+    rot_angles = tc.from_numpy(
         y1_handle[theta_ls_dataset][...] * np.pi / 180
     ).float()  # (n_theta,) in radians
-    n_theta = len(theta_ls)
+    n_theta = len(rot_angles)
 
     # ── XRF + XRT data ──
     element_lines_roi_idx = find_lines_roi_idx_from_dataset(
@@ -360,11 +362,11 @@ def reconstruct_di_xrftomo(
     )
     # y1_true: (n_lines, n_theta, H*N) — XRF counts
     y1_true = tc.from_numpy(
-        y1_handle["exchange/data"][element_lines_roi_idx]
+        y1_handle["data"][element_lines_roi_idx]
     ).view(len(element_lines_roi_idx), n_theta, sample_height_n * sample_size_n).to(dev)
     # y2_true: (n_theta, H*N) — negative log transmission
     y2_true = tc.from_numpy(
-        y2_handle["exchange/data"][XRT_ratio_dataset_idx]
+        y2_handle["data"][XRT_ratio_dataset_idx]
     ).view(n_theta, sample_height_n * sample_size_n).to(dev)
     y2_true = -tc.log(y2_true.clamp(min=1e-8))
 
@@ -468,12 +470,12 @@ def reconstruct_di_xrftomo(
         # SA changes with rotation, so one SA set per angle.
         SA_precomputed = {}  # {(angle_idx, batch_p): tensor (n_lines, n_voxel_mb) on CPU}
         with tc.no_grad():
-            for angle_idx, theta in enumerate(theta_ls):
+            for angle_idx, theta in enumerate(rot_angles):
                 # Rotate detached W and compute lac for SA
                 W_rot_det = rotate(W.detach(), theta, dev)
                 lac_rot = (
                     W_rot_det.view(n_element, 1, 1, n_voxel)
-                    * FL_line_attCS_ls.view(n_element, n_lines, 1, 1)
+                    * mu_fl.view(n_element, n_lines, 1, 1)
                 )  # (n_elem, n_lines, 1, n_voxel) broadcast → expand
                 lac_rot = lac_rot.expand(-1, -1, n_voxel_mb, -1).float()
                 # (n_elem, n_lines, n_voxel_mb, n_voxel) — frozen
@@ -518,7 +520,7 @@ def reconstruct_di_xrftomo(
             xrf_acc = 0.0
             xrt_acc = 0.0
 
-            for angle_idx, theta in enumerate(theta_ls):
+            for angle_idx, theta in enumerate(rot_angles):
                 this_theta_idx = angle_idx  # sequential ordering for Di et al.
                 for p in range(n_batch):
                     SA_mb = SA_precomputed[(angle_idx, p)]
@@ -527,7 +529,7 @@ def reconstruct_di_xrftomo(
                         W, SA_mb, theta, p,
                         n_element, n_lines, n_line_group_each_element,
                         minibatch_size, sample_size_n, sample_size_cm,
-                        probe_intensity, probe_att, probe_attCS_ls,
+                        probe_intensity, probe_att, mu_probe,
                         detected_fl_unit_concentration,
                         signal_attenuation_factor, det_solid_angle_ratio, dev,
                     )
