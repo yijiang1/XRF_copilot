@@ -11,6 +11,7 @@ Layout:
   [Shared]    Status log (combines messages from all three methods)
 """
 
+import asyncio
 import os
 import time
 import httpx
@@ -29,10 +30,11 @@ from ..components.fl_parameter_form import (
 )
 from ..components.h5_inspector import create_h5_inspector
 from ..components.file_browser import open_file_browser, BrowseConfig, BrowseMode
-from ..components.fl_control_panel import create_fl_control_panel
-from ..components.recon_control_panel import create_recon_control_panel
-from ..components.di_control_panel import create_di_control_panel
+from ..components.fl_control_panel import _collect_fl_params
+from ..components.recon_control_panel import _collect_recon_params
+from ..components.di_control_panel import _collect_di_params
 from ..components.status_log import create_status_log
+from ..components.session_bar import create_session_bar
 from ..utils.message_formatter import append_to_message_list
 
 # Colour legend for the periodic-table element selector
@@ -134,7 +136,7 @@ def create_reconstruction_all_page(api_key: str = ""):
                 with ui.row().classes("w-full gap-4 items-end"):
                     h5_path_el = ui.input(
                         "HDF5 Data File (full path)",
-                        value="/mnt/micdata3/XRF_tomography/testing_ground/data/fl_correction/everything.h5",
+                        value="/mnt/micdata3/XRF_tomography/testing_ground/data/fl_correction/bnl_test.h5",
                         placeholder="/path/to/data.h5",
                     ).classes("flex-1 font-mono")
                     h5_path_el.tooltip(
@@ -161,19 +163,21 @@ def create_reconstruction_all_page(api_key: str = ""):
 
                 with ui.row().classes("w-full gap-4 items-end"):
                     probe_energy_el = ui.number(
-                        "X-ray Energy (keV)", value=13.577, step=0.01, min=0.1,
+                        "X-ray Energy (keV)", value=None, step=0.01, min=0.1,
                         format="%.3f",
                     ).classes("w-48")
                     probe_energy_el.tooltip(
-                        "Incident beam energy in keV — used by all three methods"
+                        "Incident beam energy in keV — used by all three methods. "
+                        "Auto-loaded from HDF5 if the file stores 'probe_energy_keV'."
                     )
 
                     pixel_size_nm_el = ui.number(
-                        "Pixel Size (nm)", value=500, step=10, min=1,
+                        "Pixel Size (nm)", value=None, step=10, min=1,
                     ).classes("w-48")
                     pixel_size_nm_el.tooltip(
                         "Voxel size in nm — used by all three methods. "
-                        "For Panpan/Di, grid dimensions are auto-detected from the HDF5 file."
+                        "Auto-loaded from HDF5 if the file stores 'pixel_size_nm'. "
+                        "For Panpan/Di, grid dimensions are auto-detected from data shape."
                     )
 
                 # ── Derive fn_root / fn_data proxies from the single path input ─
@@ -187,7 +191,8 @@ def create_reconstruction_all_page(api_key: str = ""):
                 ic_selector     = _ICSelector()
                 _elem_ui        = {"container": None, "status": None}
                 _crop_cb_ref    = [None]
-                _pixel_size_ref = [pixel_size_nm_el]
+                _pixel_size_ref  = [pixel_size_nm_el]
+                _energy_ref      = [probe_energy_el]
 
                 def on_elements_loaded(names: list) -> None:
                     ctr = _elem_ui["container"]
@@ -212,6 +217,7 @@ def create_reconstruction_all_page(api_key: str = ""):
                         _crop_cb_ref[0](x1, y1, x2, y2) if _crop_cb_ref[0] else None
                     ),
                     pixel_size_nm_ref=_pixel_size_ref,
+                    probe_energy_ref=_energy_ref,
                 )
 
                 # ── Element selector (shared — all three methods) ─────────────
@@ -467,53 +473,6 @@ def create_reconstruction_all_page(api_key: str = ""):
 
                     ui.separator().classes("my-1")
 
-                    # Output Paths ────────────────────────────────────────
-                    ui.label("Output Paths").classes(
-                        "text-sm font-semibold text-gray-700"
-                    )
-                    with ui.row().classes("w-full gap-4"):
-                        el = ui.input(
-                            "P Matrix Folder",
-                            value="/mnt/micdata3/XRF_tomography/testing_ground/data/P_array/",
-                            placeholder="/path/to/P/",
-                        ).classes("flex-1 font-mono")
-                        el.tooltip("Directory where intersection length matrices are stored/cached")
-                        recon_inputs["P_folder"] = el
-                        recon_valid.append("P_folder")
-
-                        el = ui.input(
-                            "P Matrix File",
-                            value="Intersecting_Length_64_64_64",
-                        ).classes("flex-1")
-                        el.tooltip("Base filename for the intersection length matrix")
-                        recon_inputs["f_P"] = el
-                        recon_valid.append("f_P")
-
-                    with ui.row().classes("w-full gap-4"):
-                        el = ui.input(
-                            "Recon Grid File", value="grid_concentration"
-                        ).classes("flex-1")
-                        el.tooltip("Base filename for the output reconstruction grid")
-                        recon_inputs["f_recon_grid"] = el
-                        recon_valid.append("f_recon_grid")
-
-                        el = ui.input(
-                            "Recon Params File", value="recon_parameters.txt"
-                        ).classes("flex-1")
-                        el.tooltip("Filename to save reconstruction parameters summary")
-                        recon_inputs["f_recon_parameters"] = el
-                        recon_valid.append("f_recon_parameters")
-
-                    el = ui.input(
-                        "Initial Guess File",
-                        value="initialized_grid_concentration",
-                    ).classes("w-full")
-                    el.tooltip("Base filename for the initial concentration grid")
-                    recon_inputs["f_initial_guess"] = el
-                    recon_valid.append("f_initial_guess")
-
-                    ui.separator().classes("my-1")
-
                     # Reconstruction Settings (Adam) ───────────────────────
                     ui.label("Reconstruction Settings (Adam optimizer)").classes(
                         "text-sm font-semibold text-gray-700"
@@ -724,50 +683,6 @@ def create_reconstruction_all_page(api_key: str = ""):
 
                     ui.separator().classes("my-1")
 
-                    # Output Paths ────────────────────────────────────────
-                    ui.label("Output Paths").classes(
-                        "text-sm font-semibold text-gray-700"
-                    )
-                    with ui.row().classes("w-full gap-4"):
-                        el = ui.input(
-                            "P Matrix Folder", value="", placeholder="/path/to/P/"
-                        ).classes("flex-1 font-mono")
-                        el.tooltip("Directory where intersection length matrices are stored/cached")
-                        di_inputs["P_folder"] = el
-                        di_valid.append("P_folder")
-
-                        el = ui.input(
-                            "P Matrix File", value="Intersecting_Length"
-                        ).classes("flex-1")
-                        el.tooltip("Base filename for the intersection length matrix")
-                        di_inputs["f_P"] = el
-                        di_valid.append("f_P")
-
-                    with ui.row().classes("w-full gap-4"):
-                        el = ui.input(
-                            "Recon Grid File", value="di_grid_concentration"
-                        ).classes("flex-1")
-                        el.tooltip("Base filename for the output reconstruction grid")
-                        di_inputs["f_recon_grid"] = el
-                        di_valid.append("f_recon_grid")
-
-                        el = ui.input(
-                            "Recon Params File", value="di_recon_parameters.txt"
-                        ).classes("flex-1")
-                        el.tooltip("Filename to save reconstruction parameters summary")
-                        di_inputs["f_recon_parameters"] = el
-                        di_valid.append("f_recon_parameters")
-
-                    el = ui.input(
-                        "Initial Guess File",
-                        value="di_initialized_grid_concentration",
-                    ).classes("w-full")
-                    el.tooltip("Base filename for the initial concentration grid")
-                    di_inputs["f_initial_guess"] = el
-                    di_valid.append("f_initial_guess")
-
-                    ui.separator().classes("my-1")
-
                     # Optimizer (L-BFGS bi-level) ─────────────────────────
                     ui.label("Optimizer Settings (L-BFGS bi-level)").classes(
                         "text-sm font-semibold text-gray-700"
@@ -969,96 +884,453 @@ def create_reconstruction_all_page(api_key: str = ""):
 
         # ══════════════════════════════════════════════════════════════════════
         # SHARED RUN/STOP + PROGRESS (outside tabs, above status log)
-        # One container per method; visibility switches with active tab.
+        # Single button pair dispatches to the active tab's method.
         # ══════════════════════════════════════════════════════════════════════
 
-        # ── BNL controls ──────────────────────────────────────────────────────
-        fl_ctrl_container = ui.column().classes("w-full")
-        with fl_ctrl_container:
-            fl_run_btn, _fl_stop_btn = create_fl_control_panel(
-                fl_state, api, fl_inputs, fl_valid
+        # ── Combined: GPU controls + Session bar (one card, ptycho style) ──────
+        auto_gpu = {"enabled": False}
+        selected_session = {"id": ""}
+        _gpu_panel_open = {"value": False}
+
+        combined_card = ui.card().classes("w-full")
+        with combined_card:
+
+            # ── GPU controls row ──────────────────────────────────────────────
+            with ui.row().classes("w-full gap-3 items-center flex-wrap"):
+                with ui.row().classes("items-center gap-1"):
+                    check_gpu_btn = ui.button(icon="memory").props(
+                        "flat dense round color=primary"
+                    ).tooltip("Toggle GPU status panel")
+                    ui.label("GPU").classes("text-sm font-bold whitespace-nowrap")
+                    gpu_id_input = ui.number(value=0, step=1, min=-1).classes("w-20").props("outlined dense")
+                    gpu_id_input.tooltip("GPU device ID (-1 = CPU)")
+
+                    def _toggle_auto_gpu(e):
+                        auto_gpu["enabled"] = e.value
+                        gpu_id_input.set_enabled(not e.value)
+                    ui.switch("Auto").classes("ml-1").props("dense").on_value_change(
+                        _toggle_auto_gpu
+                    ).tooltip("Auto-select GPU with lowest memory usage")
+
+                with ui.row().classes("items-center gap-1"):
+                    ui.label("Sessions").classes("text-sm font-bold whitespace-nowrap")
+                    n_sessions_input = ui.number(value=1, step=1, min=1, max=8).classes("w-20").props("outlined dense")
+                    n_sessions_input.tooltip("Number of parallel sessions to launch")
+
+                shared_run_btn = ui.button(
+                    "Start Reconstruction", icon="play_arrow", color="green"
+                ).props("unelevated no-caps size=lg dense").classes("flex-1")
+                shared_stop_btn = ui.button(
+                    "Stop Reconstruction", icon="stop", color="red"
+                ).props("unelevated no-caps size=lg dense").classes("flex-1")
+
+            # ── GPU status panel (hidden column, toggled by memory icon) ──────
+            gpu_status_outer = ui.column().classes("w-full gap-0 px-1 mt-2")
+            gpu_status_outer.visible = False
+
+            with gpu_status_outer:
+                with ui.row().classes("w-full items-center justify-between pb-1"):
+                    with ui.row().classes("items-center gap-1"):
+                        ui.icon("memory", size="xs").classes("text-gray-400")
+                        ui.label("GPU Status").classes(
+                            "text-xs font-semibold text-gray-500 uppercase tracking-wide"
+                        )
+                    ui.button(
+                        icon="refresh",
+                        on_click=lambda: asyncio.ensure_future(_refresh_gpu_status(show_spinner=True)),
+                    ).props("flat dense round size=xs color=primary").tooltip("Refresh GPU status")
+                gpu_rows_container = ui.column().classes("w-full gap-0")
+
+            async def _refresh_gpu_status(show_spinner=False):
+                gpu_rows_container.clear()
+                try:
+                    data = await api.gpu_status()
+                    gpus = data.get("gpus", [])
+                    if not gpus:
+                        with gpu_rows_container:
+                            ui.label(data.get("error", "No GPUs found")).classes("text-xs text-red-500")
+                        return
+                    with gpu_rows_container:
+                        for gpu in gpus:
+                            idx = gpu["index"]
+                            name = gpu.get("name", "Unknown GPU")
+                            mem_used = gpu.get("memory_used_mb", 0)
+                            mem_total = gpu.get("memory_total_mb", 1)
+                            util = gpu.get("utilization_pct", -1)
+                            gpu_error = gpu.get("error")
+                            mem_pct = mem_used / mem_total if mem_total > 0 else 0
+                            with ui.row().classes("w-full items-center gap-3 py-1").style(
+                                "border-bottom: 1px solid #f0f0f0;"
+                            ):
+                                ui.chip(f"GPU {idx}", color="blue-grey").props("dense outline").style(
+                                    "font-size: 11px; padding: 2px 8px; line-height: 1.6;"
+                                )
+                                ui.label(name).classes("text-sm font-medium").style("min-width: 160px;")
+                                num_proc = gpu.get("num_processes", 0)
+                                proc_str = f"{num_proc} process" if num_proc == 1 else f"{num_proc} processes"
+                                ui.label(proc_str).classes("text-xs text-gray-400 whitespace-nowrap").style(
+                                    "min-width: 70px;"
+                                )
+                                with ui.row().classes("flex-1 items-center gap-2"):
+                                    mem_color = "primary" if mem_pct < 0.8 else "negative"
+                                    ui.linear_progress(
+                                        value=mem_pct, color=mem_color, show_value=False
+                                    ).props("size=8px rounded").style("flex: 1;")
+                                    ui.label(f"{mem_used:,} / {mem_total:,} MB").classes(
+                                        "text-xs text-gray-400 whitespace-nowrap"
+                                    )
+                                if util >= 0:
+                                    util_color = (
+                                        "positive" if util < 50 else ("warning" if util < 80 else "negative")
+                                    )
+                                    ui.chip(f"{util}% util", color=util_color).props("dense")
+                                else:
+                                    ui.chip("N/A", color="grey").props("dense").tooltip(
+                                        "Utilization unavailable"
+                                    )
+                                if gpu_error:
+                                    ui.icon("warning", color="negative", size="xs").tooltip(gpu_error)
+                except Exception as exc:
+                    with gpu_rows_container:
+                        ui.label(f"Error: {exc}").classes("text-xs text-red-500")
+
+            async def _toggle_gpu_panel():
+                if _gpu_panel_open["value"]:
+                    _gpu_panel_open["value"] = False
+                    gpu_status_outer.visible = False
+                else:
+                    _gpu_panel_open["value"] = True
+                    gpu_status_outer.visible = True
+                    await _refresh_gpu_status(show_spinner=True)
+
+            check_gpu_btn.on_click(lambda: asyncio.ensure_future(_toggle_gpu_panel()))
+
+            async def _auto_refresh_gpu():
+                if _gpu_panel_open["value"]:
+                    await _refresh_gpu_status(show_spinner=False)
+
+            ui.timer(5.0, _auto_refresh_gpu)
+
+            # ── Session bar (inside same card) ────────────────────────────────
+            ui.separator().classes("my-2")
+
+            def _on_session_select(sid: str):
+                selected_session["id"] = sid
+                update_session_bar(_session_bar_data["sessions"], sid)
+
+            async def _on_session_remove(sid: str):
+                try:
+                    await api.remove_session(sid)
+                except Exception:
+                    pass
+                if selected_session["id"] == sid:
+                    selected_session["id"] = ""
+                try:
+                    sessions = await api.list_sessions()
+                    _session_bar_data["sessions"] = sessions
+                    update_session_bar(sessions, selected_session["id"])
+                except Exception:
+                    pass
+
+            async def _on_clear_finished():
+                try:
+                    await api.clear_finished_sessions()
+                except Exception:
+                    pass
+                try:
+                    sessions = await api.list_sessions()
+                    _session_bar_data["sessions"] = sessions
+                    update_session_bar(sessions, selected_session["id"])
+                except Exception:
+                    pass
+
+            _session_bar_data = {"sessions": []}
+            _session_bar_container, update_session_bar = create_session_bar(
+                on_select=_on_session_select,
+                on_remove=lambda sid: asyncio.ensure_future(_on_session_remove(sid)),
+                on_clear_finished=lambda: asyncio.ensure_future(_on_clear_finished()),
             )
-            ui.label("Progress:").classes("font-bold mt-2 mb-1")
-            fl_step_info = ui.label("No correction running").classes(
+
+        with combined_card:
+            ui.separator().classes("my-2")
+            with ui.row().classes("items-center gap-2 mb-2"):
+                ui.icon("speed", size="xs").classes("text-gray-400")
+                ui.label("Progress").classes("section-header").style("margin-bottom: 0;")
+                ui.space()
+                shared_method_label = ui.label("BNL").classes("text-xs text-gray-400")
+            shared_step_info = ui.label("No reconstruction running").classes(
                 "text-gray-500 text-lg font-semibold w-full mb-1"
             )
-            fl_progress_bar   = ui.linear_progress(value=0, show_value=False).classes("mb-1")
-            fl_progress_label = ui.label("0%").classes("text-center text-sm")
+            shared_progress_bar = ui.linear_progress(value=0, show_value=False).classes("mb-1")
+            shared_progress_label = ui.label("0%").classes("text-center text-sm")
 
-            def update_fl_progress():
+        def update_shared_progress():
+            active = tabs.value
+            if active == "BNL":
                 pct = fl_state.progress_percent
-                fl_progress_bar.set_value(pct / 100.0)
-                fl_progress_label.set_text(f"{pct:.1f}%")
+                shared_method_label.set_text("BNL")
                 if fl_state.is_running or fl_state.current_step > 0:
-                    label = (
+                    step = (
                         fl_state.step_label
                         or f"Step {fl_state.current_step}/{fl_state.total_steps}"
                     )
-                    fl_step_info.set_text(f"{label}  ({pct:.0f}%)")
+                    shared_step_info.set_text(f"{step}  ({pct:.0f}%)")
                 else:
-                    fl_step_info.set_text("No correction running")
-
-        # ── Panpan controls ───────────────────────────────────────────────────
-        recon_ctrl_container = ui.column().classes("w-full")
-        with recon_ctrl_container:
-            recon_run_btn, _recon_stop_btn = create_recon_control_panel(
-                recon_state, api, recon_inputs, recon_valid
-            )
-            ui.label("Progress:").classes("font-bold mt-2 mb-1")
-            recon_step_info = ui.label("No reconstruction running").classes(
-                "text-gray-500 text-lg font-semibold w-full mb-1"
-            )
-            recon_progress_bar   = ui.linear_progress(value=0, show_value=False).classes("mb-1")
-            recon_progress_label = ui.label("0%").classes("text-center text-sm")
-
-            def update_recon_progress():
+                    shared_step_info.set_text("No correction running")
+            elif active == "Panpan":
                 pct = recon_state.progress_percent
-                recon_progress_bar.set_value(pct / 100.0)
-                recon_progress_label.set_text(f"{pct:.1f}%")
+                shared_method_label.set_text("Panpan")
                 if recon_state.is_running or recon_state.current_epoch > 0:
-                    label = f"Epoch {recon_state.current_epoch}/{recon_state.total_epochs}"
-                    recon_step_info.set_text(f"{label}  ({pct:.0f}%)")
+                    shared_step_info.set_text(
+                        f"Epoch {recon_state.current_epoch}/{recon_state.total_epochs}  ({pct:.0f}%)"
+                    )
                 else:
-                    recon_step_info.set_text("No reconstruction running")
-
-        # ── Di controls ───────────────────────────────────────────────────────
-        di_ctrl_container = ui.column().classes("w-full")
-        with di_ctrl_container:
-            di_run_btn, _di_stop_btn = create_di_control_panel(
-                di_state, api, di_inputs, di_valid
-            )
-            ui.label("Progress:").classes("font-bold mt-2 mb-1")
-            di_step_info = ui.label("No Di reconstruction running").classes(
-                "text-gray-500 text-lg font-semibold w-full mb-1"
-            )
-            di_progress_bar   = ui.linear_progress(value=0, show_value=False).classes("mb-1")
-            di_progress_label = ui.label("0%").classes("text-center text-sm")
-
-            def update_di_progress():
+                    shared_step_info.set_text("No reconstruction running")
+            elif active == "Wendy":
                 pct = di_state.progress_percent
-                di_progress_bar.set_value(pct / 100.0)
-                di_progress_label.set_text(f"{pct:.1f}%")
+                shared_method_label.set_text("Di et al. 2017")
                 if di_state.is_running or di_state.current_epoch > 0:
-                    label = f"Epoch {di_state.current_epoch}/{di_state.total_epochs}"
-                    di_step_info.set_text(f"{label}  ({pct:.0f}%)")
+                    shared_step_info.set_text(
+                        f"Epoch {di_state.current_epoch}/{di_state.total_epochs}  ({pct:.0f}%)"
+                    )
                 else:
-                    di_step_info.set_text("No Di reconstruction running")
+                    shared_step_info.set_text("No Di reconstruction running")
+            else:
+                pct = 0.0
+            shared_progress_bar.set_value(pct / 100.0)
+            shared_progress_label.set_text(f"{pct:.1f}%")
 
-        # Initially only BNL controls visible
-        recon_ctrl_container.set_visibility(False)
-        di_ctrl_container.set_visibility(False)
+        def update_shared_button():
+            active = tabs.value
+            if active == "BNL":
+                st = fl_state
+            elif active == "Panpan":
+                st = recon_state
+            else:
+                st = di_state
+            if st.is_running:
+                shared_run_btn.props("color=orange")
+                shared_run_btn.disable()
+            elif st.button_status == "processing":
+                if time.time() - st.button_timestamp > 10:
+                    shared_run_btn.props("color=green")
+                    shared_run_btn.enable()
+                    st.button_status = "idle"
+            else:
+                shared_run_btn.props("color=green")
+                shared_run_btn.enable()
 
-        # Switch visibility when tab changes
+        async def _resolve_gpu_id() -> int:
+            """Return the GPU ID to use, auto-detecting if Auto is enabled."""
+            if auto_gpu["enabled"]:
+                try:
+                    data = await api.gpu_status()
+                    gpus = data.get("gpus", [])
+                    if gpus:
+                        best = min(gpus, key=lambda g: g.get("memory_used_mb", 0))
+                        return best["index"]
+                except Exception:
+                    pass
+            return int(gpu_id_input.value or 0)
+
+        async def _on_shared_run():
+            active = tabs.value
+            n_sessions = max(1, int(n_sessions_input.value or 1))
+            shared_run_btn.props("color=orange")
+            shared_run_btn.disable()
+
+            if active == "BNL":
+                fl_state.button_status = "processing"
+                fl_state.button_timestamp = time.time()
+                for i in range(n_sessions):
+                    if i > 0:
+                        await asyncio.sleep(20)
+                    params = _collect_fl_params(fl_inputs, fl_valid)
+                    params["gpu_id"] = await _resolve_gpu_id()
+                    try:
+                        fresh = []
+                        fresh = append_to_message_list(fresh, f"Starting FL correction (session {i+1}/{n_sessions})...", level="INFO")
+                        fresh = append_to_message_list(fresh, f"  fn_root: {params.get('fn_root', '')}", level="INFO")
+                        fresh = append_to_message_list(fresh, f"  n_correction_iters: {params.get('n_correction_iters', 4)}", level="INFO")
+                        fresh = append_to_message_list(fresh, f"  gpu_id: {params['gpu_id']}", level="INFO")
+                        await api.setup_fl_correction(params)
+                        run_resp = await api.run_fl_correction()
+                        status_msg = run_resp.get("status", "FL correction started.")
+                        sid = run_resp.get("session_id", "")
+                        fresh = append_to_message_list(fresh, status_msg, level="WORKER")
+                        fl_state.messages = fresh
+                        fl_state.results_ready = False
+                        fl_state.recon_file = ""
+                        fl_state.current_step = 0
+                        fl_state.total_steps = 0
+                        fl_state.step_label = ""
+                        if sid:
+                            selected_session["id"] = sid
+                    except Exception as e:
+                        fl_state.messages = append_to_message_list(
+                            fl_state.messages, f"Error starting FL correction: {e}", level="ERROR"
+                        )
+                        shared_run_btn.props("color=green")
+                        shared_run_btn.enable()
+                        fl_state.button_status = "idle"
+                        break
+
+            elif active == "Panpan":
+                recon_state.button_status = "processing"
+                recon_state.button_timestamp = time.time()
+                for i in range(n_sessions):
+                    if i > 0:
+                        await asyncio.sleep(20)
+                    params = _collect_recon_params(recon_inputs, recon_valid)
+                    params["gpu_id"] = await _resolve_gpu_id()
+                    try:
+                        fresh = []
+                        fresh = append_to_message_list(fresh, f"Starting reconstruction (session {i+1}/{n_sessions})...", level="INFO")
+                        fresh = append_to_message_list(fresh, f"  gpu_id: {params['gpu_id']}", level="INFO")
+                        await api.setup_reconstruction(params)
+                        run_resp = await api.run_reconstruction()
+                        status_msg = run_resp.get("status", "Reconstruction started successfully.")
+                        sid = run_resp.get("session_id", "")
+                        fresh = append_to_message_list(fresh, status_msg, level="WORKER")
+                        recon_state.messages = fresh
+                        recon_state.results_ready = False
+                        if sid:
+                            selected_session["id"] = sid
+                    except Exception as e:
+                        recon_state.messages = append_to_message_list(
+                            recon_state.messages, f"Error starting reconstruction: {e}", level="ERROR"
+                        )
+                        shared_run_btn.props("color=green")
+                        shared_run_btn.enable()
+                        recon_state.button_status = "idle"
+                        break
+
+            elif active == "Wendy":
+                di_state.button_status = "processing"
+                di_state.button_timestamp = time.time()
+                for i in range(n_sessions):
+                    if i > 0:
+                        await asyncio.sleep(20)
+                    params = _collect_di_params(di_inputs, di_valid)
+                    params["gpu_id"] = await _resolve_gpu_id()
+                    try:
+                        fresh = []
+                        fresh = append_to_message_list(fresh, f"Starting Di reconstruction (session {i+1}/{n_sessions})...", level="INFO")
+                        fresh = append_to_message_list(fresh, f"  gpu_id: {params['gpu_id']}", level="INFO")
+                        await api.setup_di_reconstruction(params)
+                        run_resp = await api.run_di_reconstruction()
+                        status_msg = run_resp.get("status", "Di reconstruction started successfully.")
+                        sid = run_resp.get("session_id", "")
+                        fresh = append_to_message_list(fresh, status_msg, level="WORKER")
+                        di_state.messages = fresh
+                        di_state.results_ready = False
+                        if sid:
+                            selected_session["id"] = sid
+                    except Exception as e:
+                        di_state.messages = append_to_message_list(
+                            di_state.messages, f"Error starting Di reconstruction: {e}", level="ERROR"
+                        )
+                        shared_run_btn.props("color=green")
+                        shared_run_btn.enable()
+                        di_state.button_status = "idle"
+                        break
+
+        shared_run_btn.on_click(_on_shared_run)
+
+        async def _on_shared_stop():
+            sid = selected_session["id"]
+            active = tabs.value
+
+            # Choose target state for status messages
+            if active == "BNL":
+                st = fl_state
+            elif active == "Panpan":
+                st = recon_state
+            else:
+                st = di_state
+
+            if sid:
+                # Stop the specifically selected session
+                st.messages = append_to_message_list(
+                    st.messages, f"Stopping session {sid[:8]}...", level="WARNING"
+                )
+                try:
+                    resp = await api.stop_session(sid)
+                    st.messages = append_to_message_list(
+                        st.messages, resp.get("status", "Stopped."), level="SUCCESS"
+                    )
+                except Exception as e:
+                    st.messages = append_to_message_list(
+                        st.messages, f"Error stopping session: {e}", level="ERROR"
+                    )
+            else:
+                # No session selected — fall back to method-based stop
+                if active == "BNL":
+                    fl_state.messages = append_to_message_list(
+                        fl_state.messages, "Stopping FL correction...", level="WARNING"
+                    )
+                    try:
+                        resp = await api.stop_fl_correction()
+                        fl_state.messages = append_to_message_list(
+                            fl_state.messages, resp.get("status", "Stopped."), level="SUCCESS"
+                        )
+                    except Exception as e:
+                        fl_state.messages = append_to_message_list(
+                            fl_state.messages, f"Error stopping: {e}", level="ERROR"
+                        )
+                elif active == "Panpan":
+                    recon_state.messages = append_to_message_list(
+                        recon_state.messages, "Stopping reconstruction...", level="WARNING"
+                    )
+                    try:
+                        resp = await api.stop_reconstruction()
+                        recon_state.messages = append_to_message_list(
+                            recon_state.messages, resp.get("status", "Reconstruction stopped."), level="SUCCESS"
+                        )
+                    except Exception as e:
+                        recon_state.messages = append_to_message_list(
+                            recon_state.messages, f"Error stopping reconstruction: {e}", level="ERROR"
+                        )
+                elif active == "Wendy":
+                    di_state.messages = append_to_message_list(
+                        di_state.messages, "Stopping Di reconstruction...", level="WARNING"
+                    )
+                    try:
+                        resp = await api.stop_di_reconstruction()
+                        di_state.messages = append_to_message_list(
+                            di_state.messages, resp.get("status", "Di reconstruction stopped."), level="SUCCESS"
+                        )
+                    except Exception as e:
+                        di_state.messages = append_to_message_list(
+                            di_state.messages, f"Error stopping Di reconstruction: {e}", level="ERROR"
+                        )
+
+            st.button_status = "idle"
+            st.is_busy = False
+            shared_run_btn.props("color=green")
+            shared_run_btn.enable()
+
+        shared_stop_btn.on_click(_on_shared_stop)
+
+        # Update shared progress and button when tab changes
         def on_tab_change(e):
-            fl_ctrl_container.set_visibility(e.value == "BNL")
-            recon_ctrl_container.set_visibility(e.value == "Panpan")
-            di_ctrl_container.set_visibility(e.value == "Wendy")
+            update_shared_progress()
+            update_shared_button()
 
         tabs.on_value_change(on_tab_change)
 
-        # ── Shared status log ─────────────────────────────────────────────────
-        ui.separator().classes("mt-2")
-        _log_area, update_log = create_status_log(log_state)
+        with combined_card:
+            ui.separator().classes("my-2")
+
+            def _on_log_clear():
+                fl_state.messages.clear()
+                recon_state.messages.clear()
+                di_state.messages.clear()
+                fl_err["log_offset"] = 0
+                recon_err["log_offset"] = 0
+                di_err["log_offset"] = 0
+
+            _log_area, update_log = create_status_log(log_state, on_clear=_on_log_clear)
 
     # ── Polling timer ─────────────────────────────────────────────────────────
     async def poll_backend():
@@ -1084,8 +1356,6 @@ def create_reconstruction_all_page(api_key: str = ""):
                         "BNL FL correction failed. See status log.",
                         type="negative", position="top", timeout=8000,
                     )
-                    fl_run_btn.props("color=green")
-                    fl_run_btn.enable()
                     fl_state.button_status = "idle"
                     fl_state.is_busy = False
                 elif not fl_error:
@@ -1118,18 +1388,6 @@ def create_reconstruction_all_page(api_key: str = ""):
                     fl_err["log_offset"] = len(logs)
                 except Exception:
                     pass
-
-            if fl_state.is_running:
-                fl_run_btn.props("color=orange")
-                fl_run_btn.disable()
-            elif fl_state.button_status == "processing":
-                if time.time() - fl_state.button_timestamp > 10:
-                    fl_run_btn.props("color=green")
-                    fl_run_btn.enable()
-                    fl_state.button_status = "idle"
-            else:
-                fl_run_btn.props("color=green")
-                fl_run_btn.enable()
 
             # Mark backend connected
             if not backend_connected["value"]:
@@ -1185,8 +1443,6 @@ def create_reconstruction_all_page(api_key: str = ""):
                         "Panpan reconstruction failed. See status log.",
                         type="negative", position="top", timeout=8000,
                     )
-                    recon_run_btn.props("color=primary")
-                    recon_run_btn.enable()
                     recon_state.button_status = "idle"
                     recon_state.is_busy = False
                 elif not recon_error:
@@ -1220,18 +1476,6 @@ def create_reconstruction_all_page(api_key: str = ""):
                 except Exception:
                     pass
 
-            if recon_state.is_running:
-                recon_run_btn.props("color=orange")
-                recon_run_btn.disable()
-            elif recon_state.button_status == "processing":
-                if time.time() - recon_state.button_timestamp > 10:
-                    recon_run_btn.props("color=primary")
-                    recon_run_btn.enable()
-                    recon_state.button_status = "idle"
-            else:
-                recon_run_btn.props("color=primary")
-                recon_run_btn.enable()
-
         except Exception:
             pass
 
@@ -1258,8 +1502,6 @@ def create_reconstruction_all_page(api_key: str = ""):
                         "Di reconstruction failed. See status log.",
                         type="negative", position="top", timeout=8000,
                     )
-                    di_run_btn.props("color=primary")
-                    di_run_btn.enable()
                     di_state.button_status = "idle"
                     di_state.is_busy = False
                 elif not di_error:
@@ -1294,18 +1536,6 @@ def create_reconstruction_all_page(api_key: str = ""):
                 except Exception:
                     pass
 
-            if di_state.is_running:
-                di_run_btn.props("color=orange")
-                di_run_btn.disable()
-            elif di_state.button_status == "processing":
-                if time.time() - di_state.button_timestamp > 10:
-                    di_run_btn.props("color=primary")
-                    di_run_btn.enable()
-                    di_state.button_status = "idle"
-            else:
-                di_run_btn.props("color=primary")
-                di_run_btn.enable()
-
         except Exception:
             pass
 
@@ -1315,8 +1545,15 @@ def create_reconstruction_all_page(api_key: str = ""):
             fl_state.messages + recon_state.messages + di_state.messages
         )
         update_log()
-        update_fl_progress()
-        update_recon_progress()
-        update_di_progress()
+        update_shared_progress()
+        update_shared_button()
+
+        # ── Update session bar ────────────────────────────────────────────────
+        try:
+            sessions = await api.list_sessions()
+            _session_bar_data["sessions"] = sessions
+            update_session_bar(sessions, selected_session["id"])
+        except Exception:
+            pass
 
     ui.timer(2.0, poll_backend)

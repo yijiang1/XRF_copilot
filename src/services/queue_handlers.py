@@ -4,6 +4,8 @@ import time
 import logging
 import queue as queue_module
 
+MAX_WORKER_LOGS = 1000  # cap per-session log buffer
+
 logger = logging.getLogger(__name__)
 
 
@@ -278,3 +280,104 @@ def monitor_fl_queue(
     fl_process_status["status_queue"] = None
     fl_process_status["stop_event"] = None
     logger.info("FL correction monitor thread finished")
+
+
+def monitor_session_queue(session):
+    """Generic background monitor thread for any XRFSession.
+
+    Reads from ``session.process_status["status_queue"]`` and writes progress /
+    logs into ``session.output`` and ``session.worker_logs``.  Works for BNL,
+    Panpan, and Wendy sessions.
+
+    Args:
+        session: An ``XRFSession`` instance (from session_manager.py).
+    """
+    ps = session.process_status
+    out = session.output
+    logs = session.worker_logs
+    method = session.method
+    logger.info(f"Session monitor started for {session.session_id} ({session.display_name})")
+
+    while ps["is_running"]:
+        try:
+            if not ps["process"].is_alive():
+                logger.info(f"Worker process died for session {session.session_id}")
+                ps["is_running"] = False
+                break
+
+            try:
+                status = ps["status_queue"].get(block=True, timeout=0.5)
+
+                if "error" in status:
+                    logger.error(f"Worker error [{session.session_id}]: {status['error']}")
+                    out["error"] = status["error"]
+                    ps["is_running"] = False
+                    break
+
+                # BNL progress fields
+                if "current_step" in status:
+                    out["current_step"] = status["current_step"]
+                if "total_steps" in status:
+                    out["total_steps"] = status["total_steps"]
+                if "step_label" in status:
+                    out["step_label"] = status["step_label"]
+
+                # Panpan / Wendy progress fields
+                if "current_epoch" in status:
+                    out["current_epoch"] = status["current_epoch"]
+                if "total_epochs" in status:
+                    out["total_epochs"] = status["total_epochs"]
+
+                # Log entry
+                if "log" in status:
+                    entry = {
+                        "message": status["log"],
+                        "level": status.get("level", "WORKER"),
+                        "timestamp": status.get("timestamp", time.time()),
+                    }
+                    logs.append(entry)
+                    if len(logs) > MAX_WORKER_LOGS:
+                        del logs[: len(logs) - MAX_WORKER_LOGS]
+
+                # Result file
+                if "recon_file" in status:
+                    out["recon_file"] = status["recon_file"]
+
+                if status.get("finished"):
+                    logger.info(f"Worker finished for session {session.session_id}")
+                    ps["is_running"] = False
+                    break
+
+            except queue_module.Empty:
+                pass
+
+            time.sleep(0.1)
+
+        except Exception as e:
+            logger.error(f"Monitor error [{session.session_id}]: {e}")
+            out["error"] = f"Monitor error: {e}"
+            ps["is_running"] = False
+            break
+
+    # ── Clean up ──────────────────────────────────────────────────────────────
+    if ps["process"] and ps["process"].is_alive():
+        if ps["stop_event"]:
+            ps["stop_event"].set()
+        time.sleep(1)
+        if ps["process"].is_alive():
+            ps["process"].kill()
+            ps["process"].join(timeout=5)
+
+    if ps["status_queue"]:
+        try:
+            while True:
+                ps["status_queue"].get(block=False)
+        except Exception:
+            pass
+
+    session.latest_worker_status["timestamp"] = 0
+    session.latest_worker_status["status"] = None
+    ps["process"] = None
+    ps["status_queue"] = None
+    ps["stop_event"] = None
+    logger.info(f"Session monitor finished for {session.session_id}")

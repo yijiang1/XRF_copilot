@@ -7,50 +7,43 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def fl_stop_endpoint(fl_process_status, fl_output, fl_latest_worker_status):
-    """Register the stop FL correction endpoint."""
+def _latest_session(session_manager, method: str):
+    with session_manager._lock:
+        candidates = [s for s in session_manager._sessions.values() if s.method == method]
+    return max(candidates, key=lambda s: s.created_at) if candidates else None
+
+
+def fl_stop_endpoint(session_manager):
+    """Register the stop FL correction endpoint (session-aware)."""
 
     @router.post("/stop_fl_correction/")
-    async def stop_fl_correction():
-        if not fl_process_status["is_running"]:
+    async def stop_fl_correction(session_id: str = ""):
+        s = session_manager.get_session(session_id) if session_id else _latest_session(session_manager, "BNL")
+        if s is None or not s.process_status["is_running"]:
             return {"status": "No FL correction is running."}
-
         try:
-            logger.info("Stopping FL correction process")
-
-            if fl_process_status["stop_event"]:
-                fl_process_status["stop_event"].set()
-
+            ps = s.process_status
+            logger.info(f"Stopping FL session {s.session_id}")
+            if ps["stop_event"]:
+                ps["stop_event"].set()
             time.sleep(0.5)
-
-            if fl_process_status["process"] and fl_process_status["process"].is_alive():
-                fl_process_status["process"].kill()
-                fl_process_status["process"].join(timeout=5)
-
-            # Drain queue
-            if fl_process_status["status_queue"]:
+            if ps["process"] and ps["process"].is_alive():
+                ps["process"].kill()
+                ps["process"].join(timeout=5)
+            if ps["status_queue"]:
                 try:
+                    import queue
                     while True:
-                        fl_process_status["status_queue"].get(block=False)
-                except Exception:
+                        ps["status_queue"].get(block=False)
+                except queue.Empty:
                     pass
-
-            # Reset state
-            fl_process_status["is_running"] = False
-            fl_process_status["process"] = None
-            fl_process_status["status_queue"] = None
-            fl_process_status["stop_event"] = None
-
-            fl_output["error"] = None
-            fl_output["current_step"] = 0
-            fl_output["total_steps"] = 0
-            fl_output["step_label"] = ""
-            fl_latest_worker_status["timestamp"] = 0
-            fl_latest_worker_status["status"] = None
-
+            ps["is_running"] = False
+            ps["process"] = None
+            ps["status_queue"] = None
+            ps["stop_event"] = None
             return {"status": "FL correction stopped successfully."}
         except Exception as e:
-            logger.error(f"Error stopping FL correction: {str(e)}")
+            logger.error(f"Error stopping FL correction: {e}")
             return {"status": "Error stopping FL correction", "error": str(e)}
 
     return stop_fl_correction

@@ -16,6 +16,9 @@ from .routes import setup, run, stop, status
 from .routes import recon_setup, recon_run, recon_stop, recon_status
 from .routes import fl_setup, fl_run, fl_stop, fl_status
 from .routes import di_setup, di_run, di_stop, di_status
+from .routes import gpu_status
+from .routes import sessions as sessions_route
+from .session_manager import XRFSessionManager
 
 # Configure logging
 logging.basicConfig(
@@ -49,7 +52,8 @@ async def verify_api_key(request: Request, call_next):
     return await call_next(request)
 
 
-# Shared state for process communication
+# ── Legacy simulation state (unchanged) ───────────────────────────────────────
+
 process_status = {
     "is_running": False,
     "process": None,
@@ -69,68 +73,24 @@ simulation_output = {
 worker_logs = []
 latest_worker_status = {"timestamp": 0, "status": None}
 
-# Shared state for reconstruction process communication
-recon_process_status = {
-    "is_running": False,
-    "process": None,
-    "status_queue": None,
-    "stop_event": None,
-}
+# ── Session manager — shared across FL / Panpan / Di ─────────────────────────
 
-recon_output = {
-    "params": None,
-    "error": None,
-    "current_epoch": 0,
-    "total_epochs": 0,
-    "recon_file": "",
-}
+session_manager = XRFSessionManager()
 
-recon_worker_logs = []
-recon_latest_worker_status = {"timestamp": 0, "status": None}
-
-# Shared state for FL correction process
-fl_process_status = {
-    "is_running": False,
-    "process": None,
-    "status_queue": None,
-    "stop_event": None,
-}
-
-fl_output = {
-    "params": None,
-    "error": None,
-    "current_step": 0,
-    "total_steps": 0,
-    "step_label": "",
-    "recon_file": "",
-}
-
-fl_worker_logs = []
-fl_latest_worker_status = {"timestamp": 0, "status": None}
-
-# Shared state for Di et al. reconstruction process
-di_process_status = {
-    "is_running": False,
-    "process": None,
-    "status_queue": None,
-    "stop_event": None,
-}
-
-di_output = {
-    "params": None,
-    "error": None,
-    "current_epoch": 0,
-    "total_epochs": 0,
-    "recon_file": "",
-}
-
-di_worker_logs = []
-di_latest_worker_status = {"timestamp": 0, "status": None}
+# Setup output buffers: hold params between /setup_*/ and /run_*/
+fl_setup_output    = {"params": None, "error": None}
+recon_setup_output = {"params": None, "error": None}
+di_setup_output    = {"params": None, "error": None}
 
 
 def cleanup_resources():
-    """Clean up worker process on shutdown."""
+    """Clean up all running sessions and the legacy simulation process on shutdown."""
     logger.info("Cleaning up resources on shutdown")
+
+    # Stop all active reconstruction sessions
+    session_manager.stop_all()
+
+    # Legacy simulation cleanup
     if (
         process_status["is_running"]
         and process_status["process"]
@@ -147,54 +107,6 @@ def cleanup_resources():
         process_status["status_queue"] = None
         process_status["stop_event"] = None
 
-    if (
-        recon_process_status["is_running"]
-        and recon_process_status["process"]
-        and recon_process_status["process"].is_alive()
-    ):
-        if recon_process_status["stop_event"]:
-            recon_process_status["stop_event"].set()
-        recon_process_status["process"].terminate()
-        recon_process_status["process"].join(timeout=2)
-        if recon_process_status["process"].is_alive():
-            recon_process_status["process"].kill()
-        recon_process_status["is_running"] = False
-        recon_process_status["process"] = None
-        recon_process_status["status_queue"] = None
-        recon_process_status["stop_event"] = None
-
-    if (
-        fl_process_status["is_running"]
-        and fl_process_status["process"]
-        and fl_process_status["process"].is_alive()
-    ):
-        if fl_process_status["stop_event"]:
-            fl_process_status["stop_event"].set()
-        fl_process_status["process"].terminate()
-        fl_process_status["process"].join(timeout=2)
-        if fl_process_status["process"].is_alive():
-            fl_process_status["process"].kill()
-        fl_process_status["is_running"] = False
-        fl_process_status["process"] = None
-        fl_process_status["status_queue"] = None
-        fl_process_status["stop_event"] = None
-
-    if (
-        di_process_status["is_running"]
-        and di_process_status["process"]
-        and di_process_status["process"].is_alive()
-    ):
-        if di_process_status["stop_event"]:
-            di_process_status["stop_event"].set()
-        di_process_status["process"].terminate()
-        di_process_status["process"].join(timeout=2)
-        if di_process_status["process"].is_alive():
-            di_process_status["process"].kill()
-        di_process_status["is_running"] = False
-        di_process_status["process"] = None
-        di_process_status["status_queue"] = None
-        di_process_status["stop_event"] = None
-
     logger.info("Cleanup complete")
 
 
@@ -205,31 +117,37 @@ async def on_shutdown():
 
 atexit.register(cleanup_resources)
 
-# Initialize simulation routes
+# ── Route registration ────────────────────────────────────────────────────────
+
+# Legacy simulation routes
 setup.setup_endpoint(simulation_output)
 run.run_endpoint(process_status, simulation_output, latest_worker_status, worker_logs)
 stop.stop_endpoint(process_status, simulation_output, latest_worker_status)
 status.status_endpoints(process_status, simulation_output, latest_worker_status, worker_logs)
 
-# Initialize reconstruction routes
-recon_setup.recon_setup_endpoint(recon_output)
-recon_run.recon_run_endpoint(recon_process_status, recon_output, recon_latest_worker_status, recon_worker_logs)
-recon_stop.recon_stop_endpoint(recon_process_status, recon_output, recon_latest_worker_status)
-recon_status.recon_status_endpoints(recon_process_status, recon_output, recon_latest_worker_status, recon_worker_logs)
+# FL correction routes (session-based)
+fl_setup.fl_setup_endpoint(fl_setup_output)
+fl_run.fl_run_endpoint(session_manager, fl_setup_output)
+fl_stop.fl_stop_endpoint(session_manager)
+fl_status.fl_status_endpoints(session_manager)
 
-# Initialize FL correction routes
-fl_setup.fl_setup_endpoint(fl_output)
-fl_run.fl_run_endpoint(fl_process_status, fl_output, fl_latest_worker_status, fl_worker_logs)
-fl_stop.fl_stop_endpoint(fl_process_status, fl_output, fl_latest_worker_status)
-fl_status.fl_status_endpoints(fl_process_status, fl_output, fl_latest_worker_status, fl_worker_logs)
+# Panpan reconstruction routes (session-based)
+recon_setup.recon_setup_endpoint(recon_setup_output)
+recon_run.recon_run_endpoint(session_manager, recon_setup_output)
+recon_stop.recon_stop_endpoint(session_manager)
+recon_status.recon_status_endpoints(session_manager)
 
-# Initialize Di et al. reconstruction routes
-di_setup.di_setup_endpoint(di_output)
-di_run.di_run_endpoint(di_process_status, di_output, di_latest_worker_status, di_worker_logs)
-di_stop.di_stop_endpoint(di_process_status, di_output, di_latest_worker_status)
-di_status.di_status_endpoints(di_process_status, di_output, di_latest_worker_status, di_worker_logs)
+# Di et al. reconstruction routes (session-based)
+di_setup.di_setup_endpoint(di_setup_output)
+di_run.di_run_endpoint(session_manager, di_setup_output)
+di_stop.di_stop_endpoint(session_manager)
+di_status.di_status_endpoints(session_manager)
 
-# Include routers
+# Session management routes
+sessions_route.session_endpoints(session_manager)
+
+# ── Include routers ───────────────────────────────────────────────────────────
+
 app.include_router(setup.router, tags=["Simulation"])
 app.include_router(run.router, tags=["Simulation"])
 app.include_router(stop.router, tags=["Simulation"])
@@ -246,6 +164,8 @@ app.include_router(di_setup.router, tags=["Reconstruction (Di et al.)"])
 app.include_router(di_run.router, tags=["Reconstruction (Di et al.)"])
 app.include_router(di_stop.router, tags=["Reconstruction (Di et al.)"])
 app.include_router(di_status.router, tags=["Reconstruction (Di et al.)"])
+app.include_router(gpu_status.router, tags=["GPU"])
+app.include_router(sessions_route.router, tags=["Sessions"])
 
 
 @app.get("/")
@@ -269,6 +189,16 @@ async def root():
             "get_recon_worker_status": "POST /get_recon_worker_status/",
             "get_recon_progress": "POST /get_recon_progress/",
             "get_recon_results": "POST /get_recon_results/",
+        },
+        "session_endpoints": {
+            "list_sessions": "GET /list_sessions/",
+            "remove_session": "POST /remove_session/",
+            "clear_finished_sessions": "POST /clear_finished_sessions/",
+            "get_session_status": "GET /get_session_status/",
+            "stop_session": "POST /stop_session/",
+        },
+        "gpu_endpoints": {
+            "gpu_status": "GET /gpu_status/",
         },
     }
 

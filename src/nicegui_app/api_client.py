@@ -242,3 +242,44 @@ class XRFSimulationAPIClient:
         )
         resp.raise_for_status()
         return resp.json()
+
+    # ── GPU & Session endpoints ───────────────────────────────────────────────
+
+    async def gpu_status(self) -> dict:
+        resp = await self._client.get(
+            f"{self.endpoint}/gpu_status/", headers=self._headers()
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def list_sessions(self) -> list:
+        resp = await self._client.get(
+            f"{self.endpoint}/list_sessions/", headers=self._headers()
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def remove_session(self, session_id: str) -> dict:
+        resp = await self._client.post(
+            f"{self.endpoint}/remove_session/",
+            params={"session_id": session_id},
+            headers=self._headers(),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def stop_session(self, session_id: str) -> dict:
+        resp = await self._client.post(
+            f"{self.endpoint}/stop_session/",
+            params={"session_id": session_id},
+            headers=self._headers(),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def clear_finished_sessions(self) -> dict:
+        resp = await self._client.post(
+            f"{self.endpoint}/clear_finished_sessions/", headers=self._headers()
+        )
+        resp.raise_for_status()
+        return resp.json()
