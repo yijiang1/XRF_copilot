@@ -515,8 +515,8 @@ def create_fl_parameter_form(state: FLState) -> tuple[dict, list]:
 
                 el = ui.input(
                     "HDF5 Data File",
-                    value="everything.h5",
-                    placeholder="everything.h5",
+                    value="bnl_test.h5",
+                    placeholder="bnl_test.h5",
                 ).classes("w-full font-mono")
                 el.tooltip(
                     "HDF5 file containing XRF data ('data' dataset: "

@@ -32,7 +32,7 @@ from src.fl_correction import FL_correction_core
 core = FL_correction_core.Core()
 
 # ── Load params & data (needed for angle_list, elem_type) ─────────────────────
-fn_data  = os.path.join(REF_ROOT, "everything.h5")
+fn_data  = os.path.join(REF_ROOT, "bnl_test.h5")
 fn_param = os.path.join(REF_ROOT, "param.txt")
 b        = 4
 

@@ -1,4 +1,8 @@
-"""Scrollable monospace status log component — incremental update pattern."""
+"""Scrollable monospace status log component — incremental update pattern.
+
+Uses a plain <div> with overflow-y:auto instead of Quasar's q-scroll-area
+so that native text selection and copy work reliably.
+"""
 
 from nicegui import ui
 from ..state import AppState
@@ -7,7 +11,7 @@ MAX_DISPLAY = 500    # max messages kept in DOM
 TRIM_THRESHOLD = 700  # trim to MAX_DISPLAY when exceeded
 
 
-def create_status_log(state: AppState, on_clear=None) -> tuple[ui.scroll_area, callable]:
+def create_status_log(state: AppState, on_clear=None) -> tuple:
     """Create a scrollable monospace log display with incremental updates.
 
     Args:
@@ -16,7 +20,7 @@ def create_status_log(state: AppState, on_clear=None) -> tuple[ui.scroll_area, c
                   reset per-method message lists and log-offset counters).
 
     Returns:
-        (scroll_area, update_log_fn) tuple.
+        (log_element, update_log_fn) tuple.
     """
     collapsed = {"value": False}
     live_state = {"enabled": True}
@@ -26,7 +30,7 @@ def create_status_log(state: AppState, on_clear=None) -> tuple[ui.scroll_area, c
         with ui.row().classes("items-center gap-2"):
             ui.icon("terminal", size="xs").classes("text-gray-400")
             ui.label("Status Log").classes("section-header").style("margin-bottom: 0;")
-            ui.label("(refreshes every 2s)").classes("text-xs text-gray-400 italic")
+            ui.label("(refreshes every 3s)").classes("text-xs text-gray-400 italic")
 
         with ui.row().classes("items-center gap-1"):
 
@@ -44,6 +48,56 @@ def create_status_log(state: AppState, on_clear=None) -> tuple[ui.scroll_area, c
                 "color=green flat dense no-caps size=sm"
             )
 
+            def _copy_log():
+                # navigator.clipboard requires HTTPS; use textarea fallback
+                # for HTTP origins (typical for internal LAN apps).
+                ui.run_javascript(f"""
+                    const el = document.getElementById('c{log_container.id}');
+                    if (el) {{
+                        const text = el.innerText;
+                        if (navigator.clipboard && window.isSecureContext) {{
+                            navigator.clipboard.writeText(text);
+                        }} else {{
+                            const ta = document.createElement('textarea');
+                            ta.value = text;
+                            ta.style.position = 'fixed';
+                            ta.style.left = '-9999px';
+                            document.body.appendChild(ta);
+                            ta.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(ta);
+                        }}
+                    }}
+                """)
+                ui.notify("Log copied to clipboard", type="positive", position="top", timeout=2000)
+
+            ui.button("Copy", icon="content_copy", on_click=_copy_log).props(
+                "flat dense no-caps size=sm color=grey"
+            )
+
+            def _save_log():
+                ui.run_javascript(f"""
+                    const el = document.getElementById('c{log_container.id}');
+                    if (el) {{
+                        const text = el.innerText;
+                        if (!text || !text.trim()) return;
+                        const blob = new Blob([text], {{ type: 'text/plain' }});
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '_');
+                        a.download = 'xrf_log_' + ts + '.txt';
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                    }}
+                """)
+
+            ui.button("Save", icon="save_alt", on_click=_save_log).props(
+                "flat dense no-caps size=sm color=grey"
+            )
+
             def _clear_log():
                 state.messages.clear()
                 log_container.clear()
@@ -57,7 +111,7 @@ def create_status_log(state: AppState, on_clear=None) -> tuple[ui.scroll_area, c
 
             def _toggle_collapse():
                 collapsed["value"] = not collapsed["value"]
-                scroll.set_visibility(not collapsed["value"])
+                log_div.set_visibility(not collapsed["value"])
                 chevron_btn.props(
                     "icon=expand_more flat dense size=sm color=grey"
                     if collapsed["value"] else
@@ -68,10 +122,13 @@ def create_status_log(state: AppState, on_clear=None) -> tuple[ui.scroll_area, c
                 "flat dense size=sm color=grey"
             )
 
-    # ── Scroll area ────────────────────────────────────────────────────────────
-    with ui.scroll_area().classes("w-full h-64 rounded").style(
-        "background: #f8fafc; border: 1px solid #e5e7eb;"
-    ) as scroll:
+    # ── Log container — plain div for native text selection ───────────────────
+    log_div = ui.element("div").classes("w-full rounded").style(
+        "background: #f8fafc; border: 1px solid #e5e7eb; "
+        "overflow-y: auto; height: 16rem; "
+        "user-select: text; cursor: text;"
+    )
+    with log_div:
         log_container = ui.column().classes("w-full gap-0 p-2")
 
     dom_count = {"value": 0}  # messages currently rendered in DOM
@@ -104,13 +161,10 @@ def create_status_log(state: AppState, on_clear=None) -> tuple[ui.scroll_area, c
 
         dom_count["value"] = n
 
-        # Auto-scroll to bottom
+        # Auto-scroll to bottom (native scrollTop on plain div)
         ui.run_javascript(f"""
-            const scrollArea = document.getElementById('c{scroll.id}');
-            if (scrollArea) {{
-                const container = scrollArea.querySelector('.q-scrollarea__container');
-                if (container) container.scrollTop = container.scrollHeight;
-            }}
+            const el = document.getElementById('c{log_div.id}');
+            if (el) el.scrollTop = el.scrollHeight;
         """)
 
-    return scroll, update_log
+    return log_div, update_log

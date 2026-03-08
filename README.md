@@ -133,7 +133,7 @@ Then open `http://<frontend-host>:8050/<your-key>` in your browser.
 
 ### HDF5 Data Inspector (FL Correction page)
 
-- Slice-based viewing of large `everything.h5` files — only loads the displayed slice (~1.4 MB), never the full array
+- Slice-based viewing of large HDF5 files — only loads the displayed slice (~1.4 MB), never the full array
 - **Zoom/pan** with Ctrl+wheel; double-click to reset
 - **Ruler tool** — draw a line to measure distances; shows physical distance in nm or µm using the configured voxel size
 - **Crop tool** — draw a symmetric crop box about the rotation axis; box persists and resizes correctly when the browser window is resized

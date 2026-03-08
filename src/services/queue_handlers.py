@@ -24,13 +24,12 @@ def monitor_process_queue(
 
     while process_status["is_running"]:
         try:
-            if not process_status["process"].is_alive():
-                logger.info("Worker process is no longer alive")
-                process_status["is_running"] = False
-                break
+            alive = process_status["process"].is_alive()
 
             try:
-                status = process_status["status_queue"].get(block=True, timeout=0.5)
+                status = process_status["status_queue"].get(
+                    block=alive, timeout=0.5 if alive else 0,
+                )
 
                 if "error" in status:
                     logger.error(f"Received error from worker: {status['error']}")
@@ -64,7 +63,10 @@ def monitor_process_queue(
                     break
 
             except queue_module.Empty:
-                pass
+                if not alive:
+                    logger.info("Worker process exited, queue drained")
+                    process_status["is_running"] = False
+                    break
 
             time.sleep(0.1)
 
@@ -118,13 +120,12 @@ def monitor_recon_queue(
 
     while recon_process_status["is_running"]:
         try:
-            if not recon_process_status["process"].is_alive():
-                logger.info("Reconstruction worker process is no longer alive")
-                recon_process_status["is_running"] = False
-                break
+            alive = recon_process_status["process"].is_alive()
 
             try:
-                status = recon_process_status["status_queue"].get(block=True, timeout=0.5)
+                status = recon_process_status["status_queue"].get(
+                    block=alive, timeout=0.5 if alive else 0,
+                )
 
                 if "error" in status:
                     logger.error(f"Received error from recon worker: {status['error']}")
@@ -156,7 +157,10 @@ def monitor_recon_queue(
                     break
 
             except queue_module.Empty:
-                pass
+                if not alive:
+                    logger.info("Reconstruction worker exited, queue drained")
+                    recon_process_status["is_running"] = False
+                    break
 
             time.sleep(0.1)
 
@@ -203,13 +207,12 @@ def monitor_fl_queue(
 
     while fl_process_status["is_running"]:
         try:
-            if not fl_process_status["process"].is_alive():
-                logger.info("FL correction worker process is no longer alive")
-                fl_process_status["is_running"] = False
-                break
+            alive = fl_process_status["process"].is_alive()
 
             try:
-                status = fl_process_status["status_queue"].get(block=True, timeout=0.5)
+                status = fl_process_status["status_queue"].get(
+                    block=alive, timeout=0.5 if alive else 0,
+                )
 
                 if "error" in status:
                     logger.error(f"Received error from FL worker: {status['error']}")
@@ -242,7 +245,10 @@ def monitor_fl_queue(
                     break
 
             except queue_module.Empty:
-                pass
+                if not alive:
+                    logger.info("FL correction worker exited, queue drained")
+                    fl_process_status["is_running"] = False
+                    break
 
             time.sleep(0.1)
 
@@ -300,13 +306,12 @@ def monitor_session_queue(session):
 
     while ps["is_running"]:
         try:
-            if not ps["process"].is_alive():
-                logger.info(f"Worker process died for session {session.session_id}")
-                ps["is_running"] = False
-                break
+            alive = ps["process"].is_alive()
 
             try:
-                status = ps["status_queue"].get(block=True, timeout=0.5)
+                status = ps["status_queue"].get(
+                    block=alive, timeout=0.5 if alive else 0,
+                )
 
                 if "error" in status:
                     logger.error(f"Worker error [{session.session_id}]: {status['error']}")
@@ -339,9 +344,20 @@ def monitor_session_queue(session):
                     if len(logs) > MAX_WORKER_LOGS:
                         del logs[: len(logs) - MAX_WORKER_LOGS]
 
+                # Output path (announced at worker start)
+                if "recon_path" in status:
+                    out["recon_path"] = status["recon_path"]
+
                 # Result file
                 if "recon_file" in status:
                     out["recon_file"] = status["recon_file"]
+
+                # Checkpoint saved — store for result viewer
+                if "checkpoint_saved" in status:
+                    out["latest_checkpoint"] = {
+                        "file": status.get("checkpoint_file", ""),
+                        "iteration": status.get("iteration", -1),
+                    }
 
                 if status.get("finished"):
                     logger.info(f"Worker finished for session {session.session_id}")
@@ -349,7 +365,10 @@ def monitor_session_queue(session):
                     break
 
             except queue_module.Empty:
-                pass
+                if not alive:
+                    logger.info(f"Worker exited for session {session.session_id}, queue drained")
+                    ps["is_running"] = False
+                    break
 
             time.sleep(0.1)
 

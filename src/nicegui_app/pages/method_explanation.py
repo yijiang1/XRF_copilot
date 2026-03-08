@@ -1104,5 +1104,158 @@ def create_method_explanation_page():
             with ui.column().classes("p-2"):
                 ui.html(_VARIABLE_TABLE)
 
+        # ════════════════════════════════════════════════════════════════════
+        # Section 5 — Output File Structure
+        # ════════════════════════════════════════════════════════════════════
+        _section_header("5", "Output File Structure", "folder_open", "#0369a1")
+
+        with ui.card().classes("w-full"):
+            with ui.column().classes("p-3 gap-4"):
+
+                ui.html(
+                    '<p style="font-size:0.88rem; color:#475569; line-height:1.6; margin:0 0 4px 0;">'
+                    'All outputs are written under <code>{Working Directory}/{Method}/</code>. '
+                    'The input HDF5 is still read from the working directory itself. '
+                    'Per-element TIFFs (<code>{elem}_iter_{N:02d}.tiff</code>) are saved at every '
+                    'checkpoint, making it easy to inspect intermediate results without loading HDF5 files.'
+                    '</p>'
+                )
+
+                # ── BNL ──
+                ui.html(
+                    '<div style="font-size:0.88rem; font-weight:700; color:#7c3aed; '
+                    'border-left:4px solid #7c3aed; padding-left:8px; margin-bottom:6px;">'
+                    'BNL (FL Correction) &nbsp;&rarr;&nbsp; <code style="font-size:0.82rem;">{fn_root}/BNL/</code>'
+                    '</div>'
+                )
+                ui.html(
+                    '<table style="width:100%; border-collapse:collapse; font-size:0.82rem; margin-bottom:4px;">'
+                    '<thead><tr style="background:#f5f3ff;">'
+                    '<th style="text-align:left;padding:5px 10px;color:#5b21b6;width:45%;">File / Path</th>'
+                    '<th style="text-align:left;padding:5px 10px;color:#5b21b6;">Description</th>'
+                    '</tr></thead><tbody>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:5px 10px;font-family:monospace;color:#374151;">mask3D_{mask_length}.h5</td>'
+                    '<td style="padding:5px 10px;color:#374151;">3D detector solid-angle mask. Computed once and cached (~416 MB for default mask_length=200). Reloaded on subsequent runs.</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:5px 10px;font-family:monospace;color:#374151;">recon/recon_{iter_id:02d}.h5</td>'
+                    '<td style="padding:5px 10px;color:#374151;">HDF5 at each reconstruction stage (same internal format as Panpan/Wendy).<br>'
+                    '<b>iter=-2</b>: full-resolution ASTRA FBP (~938 MB) &nbsp;|&nbsp; '
+                    '<b>iter=-1</b>: binned (~15 MB) &nbsp;|&nbsp; '
+                    '<b>iter=01,02,&hellip;</b>: FL-corrected volume.<br>'
+                    'Flat structure: <code>densities</code> [n_elem, H, N, N] float32 &nbsp;+&nbsp; <code>elements</code> [n_elem] bytes S5.</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:5px 10px;font-family:monospace;color:#374151;">recon/{elem}_iter_{iter_id:02d}.tiff</td>'
+                    '<td style="padding:5px 10px;color:#374151;">Per-element 3D TIFF at the same iteration stages as the .h5. Binned ~3 MB, full-res ~188 MB per element.</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:5px 10px;font-family:monospace;color:#374151;">Angle_prj_{it:02d}/</td>'
+                    '<td style="padding:5px 10px;color:#374151;">Per-iteration attenuation projection TIFFs (numba-CUDA path only). TorchCore keeps attenuation in GPU memory and skips this directory.</td>'
+                    '</tr>'
+                    '</tbody></table>'
+                )
+
+                ui.separator()
+
+                # ── Panpan ──
+                ui.html(
+                    '<div style="font-size:0.88rem; font-weight:700; color:#1d4ed8; '
+                    'border-left:4px solid #1d4ed8; padding-left:8px; margin-bottom:6px;">'
+                    'Panpan &nbsp;&rarr;&nbsp; <code style="font-size:0.82rem;">{fn_root}/Panpan/</code>'
+                    '</div>'
+                )
+                ui.html(
+                    '<table style="width:100%; border-collapse:collapse; font-size:0.82rem; margin-bottom:4px;">'
+                    '<thead><tr style="background:#eff6ff;">'
+                    '<th style="text-align:left;padding:5px 10px;color:#1e40af;width:45%;">File / Path</th>'
+                    '<th style="text-align:left;padding:5px 10px;color:#1e40af;">Description</th>'
+                    '</tr></thead><tbody>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:5px 10px;font-family:monospace;color:#374151;">P_array/Intersecting_Length_<br>{N}x{H}_pix{p}nm_dia{d}cm_&hellip;_{side}.h5</td>'
+                    '<td style="padding:5px 10px;color:#374151;">Detector path-length matrix. Computed once (~2 GB for 64&times;64), named from geometry params and cached. Shared with Wendy if geometry is identical.</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:5px 10px;font-family:monospace;color:#374151;">P_array/P_array_parameters.txt</td>'
+                    '<td style="padding:5px 10px;color:#374151;">Geometry parameters used to compute the P matrix (detector size, distance, spacing, side).</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:5px 10px;font-family:monospace;color:#374151;">recon_initial.h5</td>'
+                    '<td style="padding:5px 10px;color:#374151;">Initial concentration guess (zeros, or loaded from a previous checkpoint if resuming).</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:5px 10px;font-family:monospace;color:#374151;">recon.h5</td>'
+                    '<td style="padding:5px 10px;color:#374151;">Final reconstruction. Flat HDF5: <code>densities</code> [n_elem_lines, H, N, N] float32 in g/cm&sup3;, <code>elements</code> [n_elem_lines] bytes S5.</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:5px 10px;font-family:monospace;color:#374151;">recon_{epoch}.h5<br>recon_{epoch}.tiff</td>'
+                    '<td style="padding:5px 10px;color:#374151;">Checkpoint every <em>save_every_n_epochs</em> epochs (1-indexed: first checkpoint is <code>recon_1.h5</code>). Same flat HDF5 format as final output; TIFF stacks all element lines into one image.</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:5px 10px;font-family:monospace;color:#374151;">{elem}_iter_{epoch:02d}.tiff</td>'
+                    '<td style="padding:5px 10px;color:#374151;">Per-element 3D TIFF at each checkpoint (e.g. <code>Ca_iter_01.tiff</code>, <code>Sc_iter_02.tiff</code>).</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:5px 10px;font-family:monospace;color:#374151;">recon_parameters_{YYYYMMDD}.txt</td>'
+                    '<td style="padding:5px 10px;color:#374151;">Run parameters: geometry, Adam optimizer (b1/b2/lr), data shape, probe energy, element lines, angle range.</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:5px 10px;font-family:monospace;color:#374151;">loss_signal.pdf<br>XRF_loss_signal.npy &nbsp; XRT_loss_signal.npy &nbsp; loss_signal.npy</td>'
+                    '<td style="padding:5px 10px;color:#374151;">Loss curve plot (XRF + XRT + total) and raw numpy arrays of per-epoch loss history.</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:5px 10px;font-family:monospace;color:#374151;">per_epoch_time_mb_size_{batch}.csv<br>model_change_mse_epoch.csv &nbsp; stdo.csv</td>'
+                    '<td style="padding:5px 10px;color:#374151;">Timing per epoch, per-epoch convergence metric (MSE of weight change), and stdout log.</td>'
+                    '</tr>'
+                    '</tbody></table>'
+                )
+
+                ui.separator()
+
+                # ── Wendy ──
+                ui.html(
+                    '<div style="font-size:0.88rem; font-weight:700; color:#065f46; '
+                    'border-left:4px solid #065f46; padding-left:8px; margin-bottom:6px;">'
+                    'Di et al. 2017 (Wendy) &nbsp;&rarr;&nbsp; <code style="font-size:0.82rem;">{fn_root}/Wendy/</code>'
+                    '</div>'
+                )
+                ui.html(
+                    '<table style="width:100%; border-collapse:collapse; font-size:0.82rem; margin-bottom:4px;">'
+                    '<thead><tr style="background:#f0fdf4;">'
+                    '<th style="text-align:left;padding:5px 10px;color:#065f46;width:45%;">File / Path</th>'
+                    '<th style="text-align:left;padding:5px 10px;color:#065f46;">Description</th>'
+                    '</tr></thead><tbody>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:5px 10px;font-family:monospace;color:#374151;">P_array/Intersecting_Length_{&hellip;}.h5</td>'
+                    '<td style="padding:5px 10px;color:#374151;">Same P matrix format as Panpan. If geometry matches, the pre-computed file can be shared to avoid recomputation.</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:5px 10px;font-family:monospace;color:#374151;">recon_initial.h5</td>'
+                    '<td style="padding:5px 10px;color:#374151;">Initial concentration guess (zeros or checkpoint resume).</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:5px 10px;font-family:monospace;color:#374151;">recon.h5</td>'
+                    '<td style="padding:5px 10px;color:#374151;">Final reconstruction. Flat HDF5: <code>densities</code> [n_elem_lines, H, N, N] float32 in g/cm&sup3;, <code>elements</code> [n_elem_lines] bytes S5.</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:5px 10px;font-family:monospace;color:#374151;">recon_{outer_ep}.h5</td>'
+                    '<td style="padding:5px 10px;color:#374151;">Checkpoint HDF5 saved every outer epoch (1-indexed).</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:5px 10px;font-family:monospace;color:#374151;">{elem}_iter_{outer_ep:02d}.tiff</td>'
+                    '<td style="padding:5px 10px;color:#374151;">Per-element 3D TIFF at each outer epoch checkpoint.</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:5px 10px;font-family:monospace;color:#374151;">recon_parameters_{YYYYMMDD}.txt</td>'
+                    '<td style="padding:5px 10px;color:#374151;">Run parameters: geometry, L-BFGS settings (n_iter, history), loss type, Tikhonov &lambda;, element lines, probe energy.</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:5px 10px;font-family:monospace;color:#374151;">XRF_loss_signal.npy &nbsp; XRT_loss_signal.npy</td>'
+                    '<td style="padding:5px 10px;color:#374151;">XRF Poisson log-likelihood and XRT loss history arrays per outer epoch.</td>'
+                    '</tr>'
+                    '</tbody></table>'
+                )
+
         # bottom padding
         ui.element("div").classes("h-8")

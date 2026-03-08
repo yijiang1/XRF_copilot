@@ -121,13 +121,26 @@ def reconstruction_worker_process(params: dict, status_queue, stop_event):
         worker_logger.info(f"Total epochs: {n_epochs}")
 
         # ── Progress callback ──
+        _last_epoch_time = {"t": time.time()}
+
         def progress_callback(current_epoch, total_epochs):
             if stop_event.is_set():
                 raise InterruptedError("Reconstruction stopped by user")
+            now = time.time()
+            elapsed = now - _last_epoch_time["t"]
+            _last_epoch_time["t"] = now
             status_queue.put({
                 "current_epoch": current_epoch,
                 "total_epochs": total_epochs,
             })
+            status_queue.put({
+                "log": f"[Panpan] Epoch {current_epoch}/{total_epochs} complete ({elapsed:.1f}s)",
+                "level": "INFO",
+                "timestamp": now,
+            })
+
+        def log_callback(msg):
+            status_queue.put({"log": msg, "level": "INFO", "timestamp": time.time()})
 
         status_queue.put({"log": "Starting XRF reconstruction...", "level": "INFO", "timestamp": time.time()})
 
@@ -197,6 +210,30 @@ def reconstruction_worker_process(params: dict, status_queue, stop_event):
             f"sample_size_cm={sample_size_cm:.6f} cm (pixel={pixel_size_nm} nm)"
         )
 
+        # ── Output directory ──
+        recon_path = os.path.join(params["fn_root"], "Panpan")
+        os.makedirs(recon_path, exist_ok=True)
+        # Announce output path so result viewer can scan for checkpoints
+        status_queue.put({"recon_path": recon_path})
+
+        # ── Auto-generate output filenames (unified across methods) ──
+        _date = time.strftime("%Y%m%d")
+        f_recon_parameters = f"recon_parameters_{_date}.txt"
+        f_recon_grid       = "recon"
+        f_initial_guess    = "recon_initial"
+
+        # ── Auto-generate P matrix path ──
+        P_folder = os.path.join(recon_path, "P_array")
+        os.makedirs(P_folder, exist_ok=True)
+        f_P = (
+            f"Intersecting_Length_{sample_size_n}x{sample_height_n}"
+            f"_pix{pixel_size_nm:.0f}nm"
+            f"_dia{params['det_dia_cm']:.4g}cm"
+            f"_dist{params['det_from_sample_cm']:.4g}cm"
+            f"_spc{params['det_ds_spacing_cm']:.4g}cm"
+            f"_{params['det_on_which_side']}"
+        )
+
         # ── Build reconstruction kwargs ──
         recon_kwargs = dict(
             dev=dev,
@@ -220,16 +257,16 @@ def reconstruction_worker_process(params: dict, status_queue, stop_event):
             n_epochs=n_epochs,
             save_every_n_epochs=params["save_every_n_epochs"],
             minibatch_size=params["minibatch_size"],
-            f_recon_parameters=params["f_recon_parameters"],
+            f_recon_parameters=f_recon_parameters,
             selfAb=params["selfAb"],
             cont_from_check_point=params["cont_from_check_point"],
             use_saved_initial_guess=params["use_saved_initial_guess"],
             ini_kind=params["ini_kind"],
             init_const=params["init_const"],
             ini_rand_amp=0.1,
-            recon_path=params["fn_root"],
-            f_initial_guess=params["f_initial_guess"],
-            f_recon_grid=params["f_recon_grid"],
+            recon_path=recon_path,
+            f_initial_guess=f_initial_guess,
+            f_recon_grid=f_recon_grid,
             data_path=params["fn_root"],
             f_XRF_data=params["fn_data"],
             f_XRT_data=params["fn_data"],   # single file: exchange/data contains all channels
@@ -244,20 +281,21 @@ def reconstruction_worker_process(params: dict, status_queue, stop_event):
             b1=params["b1"],
             b2=params["b2"],
             lr=params["lr"],
-            P_folder=params["P_folder"],
-            f_P=params["f_P"],
+            P_folder=P_folder,
+            f_P=f_P,
             fl_K=fl_K,
             fl_L=fl_L,
             fl_M=fl_M,
             fl_energy_override=fl_energy_override,
             progress_callback=progress_callback,
+            log_callback=log_callback,
         )
 
         reconstruct_jXRFT_tomography(**recon_kwargs)
 
         # Final result file
         import os as _os
-        recon_file = _os.path.join(params["fn_root"], params["f_recon_grid"] + ".h5")
+        recon_file = _os.path.join(recon_path, f_recon_grid + ".h5")
         worker_logger.info(f"Reconstruction complete: {recon_file}")
         status_queue.put({
             "finished": True,

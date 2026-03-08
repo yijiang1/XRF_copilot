@@ -44,14 +44,10 @@ class XRFReconstructionParams(BaseModel):
 
     # ── Data paths ──
     fn_root: str                    # Working directory containing the single H5 data file
-    fn_data: str = "data.h5"        # Single HDF5 file (APS exchange format: exchange/data has all channels)
-    P_folder: str
-    f_P: str = "Intersecting_Length"
-    f_recon_grid: str = "grid_concentration"
-    f_initial_guess: str = "initialized_grid_concentration"
-    f_recon_parameters: str = "recon_parameters.txt"
+    fn_data: str = "data.h5"        # Single HDF5 file
 
     # ── Sample geometry ──
+    pixel_size_nm: float = 156.0      # Voxel size (nm); used to compute sample_size_cm
     sample_size_n: int = 64
     sample_height_n: int = 64
     sample_size_cm: float = 0.01
@@ -110,14 +106,10 @@ class DiReconParams(BaseModel):
 
     # ── Data paths ──
     fn_root: str                    # Working directory containing the single H5 data file
-    fn_data: str = "data.h5"        # Single HDF5 file (APS exchange format: exchange/data has all channels)
-    P_folder: str
-    f_P: str = "Intersecting_Length"          # shared with Panpan if geometry matches
-    f_recon_grid: str = "di_grid_concentration"
-    f_initial_guess: str = "di_initialized_grid_concentration"
-    f_recon_parameters: str = "di_recon_parameters.txt"
+    fn_data: str = "data.h5"        # Single HDF5 file
 
     # ── Sample geometry ──
+    pixel_size_nm: float = 156.0      # Voxel size (nm); used to compute sample_size_cm
     sample_size_n: int = 64
     sample_height_n: int = 64
     sample_size_cm: float = 0.01
@@ -174,7 +166,7 @@ class FLCorrectionParams(BaseModel):
 
     # ── Data paths ──
     fn_root: str          # Working directory (contains data, param, output folders)
-    fn_data: str = "everything.h5"    # HDF5 data file (relative to fn_root or abs)
+    fn_data: str = "bnl_test.h5"      # HDF5 data file (relative to fn_root or abs)
     fn_param: str = "param.txt"       # Parameter file (relative to fn_root or abs)
     theta_ls_dataset: str = "thetas"  # HDF5 dataset key containing rotation angles (degrees)
 

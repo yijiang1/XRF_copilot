@@ -24,6 +24,7 @@ Reference:
 """
 
 import os
+import time
 import shutil
 import numpy as np
 import h5py
@@ -229,9 +230,9 @@ def reconstruct_di_xrftomo(
     recon_path: str,
     P_folder: str,
     f_P: str = "Intersecting_Length",
-    f_recon_grid: str = "di_grid_concentration",
-    f_initial_guess: str = "di_initialized_grid_concentration",
-    f_recon_parameters: str = "di_recon_parameters.txt",
+    f_recon_grid: str = "recon",
+    f_initial_guess: str = "recon_initial",
+    f_recon_parameters: str = "recon_parameters.txt",
     # ── Sample geometry ──
     sample_size_n: int = 64,
     sample_height_n: int = 64,
@@ -277,6 +278,7 @@ def reconstruct_di_xrftomo(
     save_every_n_epochs: int = 1,
     fl_energy_override: dict = None,
     progress_callback=None,
+    log_callback=None,
     fl_K=None, fl_L=None, fl_M=None,
 ):
     """Di et al. 2017 XRF tomographic reconstruction.
@@ -301,6 +303,11 @@ def reconstruct_di_xrftomo(
     if fl_M is None:
         fl_M = _FL_M
 
+    def _log(msg):
+        print(f"[Di recon] {msg}")
+        if log_callback is not None:
+            log_callback(msg)
+
     if dev is None:
         dev = tc.device("cuda:0" if tc.cuda.is_available() else "cpu")
 
@@ -310,18 +317,19 @@ def reconstruct_di_xrftomo(
     n_voxel = sample_height_n * sample_size_n ** 2
     n_batch = (sample_height_n * sample_size_n) // minibatch_size
 
-    # ── Output directories ──
+    # ── Output directory ──
     os.makedirs(recon_path, exist_ok=True)
-    checkpoint_path = os.path.join(recon_path, "checkpoint")
-    os.makedirs(checkpoint_path, exist_ok=True)
+    _log(f"Output directory: {recon_path}")
 
     # ── Load observed data ──
+    _log("Loading experimental data...")
     y1_handle = h5py.File(os.path.join(data_path, f_XRF_data), "r")
     y2_handle = h5py.File(os.path.join(data_path, f_XRT_data), "r")
 
     # ── Element setup ──
     n_element = len(this_aN_dic)
     aN_ls = np.array(list(this_aN_dic.values()))
+    _log(f"Elements: {list(this_aN_dic.keys())} ({n_element} elements)")
 
     # ── FL line dictionary ──
     fl_all_lines_dic = MakeFLlinesDictionary_manual(
@@ -355,6 +363,7 @@ def reconstruct_di_xrftomo(
         y1_handle[theta_ls_dataset][...] * np.pi / 180
     ).float()  # (n_theta,) in radians
     n_theta = len(rot_angles)
+    _log(f"Loaded {n_theta} rotation angles, {n_lines} FL lines")
 
     # ── XRF + XRT data ──
     element_lines_roi_idx = find_lines_roi_idx_from_dataset(
@@ -384,7 +393,7 @@ def reconstruct_di_xrftomo(
     # Shared with Panpan: if the file exists at P_folder/f_P.h5, reuse it.
     P_save_path = os.path.join(P_folder, f_P)
     if not os.path.isfile(P_save_path + ".h5"):
-        print(f"[Di recon] P matrix not found at {P_save_path}.h5 — computing (single rank)...")
+        _log(f"P matrix not found — computing: {P_save_path}.h5")
         intersecting_length_fl_detectorlet_3d_mpi_write_h5_3_manual(
             n_ranks=1,
             minibatch_size=minibatch_size,
@@ -402,19 +411,25 @@ def reconstruct_di_xrftomo(
             P_folder=P_folder,
             f_P=f_P,
         )
+        _log("P matrix computed and saved.")
+    else:
+        _log(f"P matrix loaded from cache: {P_save_path}.h5")
     P_handle = h5py.File(P_save_path + ".h5", "r")
     n_det = P_handle["P_array"].shape[0]
 
     # ── Initialize W ──
     if cont_from_check_point:
+        _log("Loading W from checkpoint...")
         with h5py.File(os.path.join(recon_path, f_recon_grid + ".h5"), "r") as s:
-            W_np = s["sample/densities"][...].astype(np.float32)
+            W_np = s["densities"][...].astype(np.float32)
         W_data = tc.from_numpy(W_np).to(dev)
     elif use_saved_initial_guess:
+        _log("Loading saved initial guess...")
         with h5py.File(os.path.join(recon_path, f_initial_guess + ".h5"), "r") as s:
-            W_np = s["sample/densities"][...].astype(np.float32)
+            W_np = s["densities"][...].astype(np.float32)
         W_data = tc.from_numpy(W_np).to(dev)
     else:
+        _log(f"Creating initial guess (kind={ini_kind}, const={init_const})...")
         W_data = initialize_guess_3d(
             dev, ini_kind, n_element, sample_size_n, sample_height_n,
             recon_path, f_recon_grid, f_initial_guess, init_const,
@@ -424,15 +439,8 @@ def reconstruct_di_xrftomo(
 
     # Save initial guess
     with h5py.File(os.path.join(recon_path, f_initial_guess + ".h5"), "w") as s:
-        grp = s.create_group("sample")
-        grp.create_dataset(
-            "densities",
-            shape=(n_element, sample_height_n, sample_size_n, sample_size_n),
-            dtype="f4",
-        )
-        grp.create_dataset("elements", shape=(n_element,), dtype="S5")
-        s["sample/densities"][...] = W.detach().cpu().numpy()
-        s["sample/elements"][...] = np.array(list(this_aN_dic.keys())).astype("S5")
+        s.create_dataset("densities", data=W.detach().cpu().numpy().astype("f4"))
+        s.create_dataset("elements", data=np.array(list(this_aN_dic.keys())).astype("S5"))
     shutil.copy(
         os.path.join(recon_path, f_initial_guess + ".h5"),
         os.path.join(recon_path, f_recon_grid + ".h5"),
@@ -460,11 +468,13 @@ def reconstruct_di_xrftomo(
     _loss_xrt = _mse  # XRT always MSE (same as Panpan)
 
     # ── Outer bi-level loop ──────────────────────────────────────────────────
+    _log(f"Starting optimization: {n_outer_epochs} outer epochs, L-BFGS(max_iter={lbfgs_n_iter}, history={lbfgs_history})")
     XRF_loss_history = []
     XRT_loss_history = []
 
     for outer_ep in range(n_outer_epochs):
-        print(f"[Di recon] Outer epoch {outer_ep + 1}/{n_outer_epochs} — precomputing SA...")
+        t0_epoch = time.perf_counter()
+        _log(f"Epoch {outer_ep + 1}/{n_outer_epochs}: precomputing self-absorption...")
 
         # ── Pre-compute frozen SA_fixed for all angles × batches ──
         # SA changes with rotation, so one SA set per angle.
@@ -499,7 +509,7 @@ def reconstruct_di_xrftomo(
                             n_lines, n_voxel_mb, dtype=tc.float32
                         )  # no self-absorption
 
-        print(f"[Di recon] SA precomputed. Starting L-BFGS inner loop...")
+        _log(f"Epoch {outer_ep + 1}/{n_outer_epochs}: SA precomputed. Running L-BFGS...")
 
         # ── Inner L-BFGS optimizer ──
         optimizer = tc.optim.LBFGS(
@@ -566,36 +576,31 @@ def reconstruct_di_xrftomo(
         XRF_loss_history.append(xrf_loss_ep)
         XRT_loss_history.append(xrt_loss_ep)
 
-        print(
-            f"[Di recon] Epoch {outer_ep + 1}: "
+        per_epoch_time = time.perf_counter() - t0_epoch
+        _log(
+            f"Epoch {outer_ep + 1}/{n_outer_epochs} completed in {per_epoch_time:.1f}s — "
             f"XRF_loss={xrf_loss_ep:.4e}, XRT_loss={xrt_loss_ep:.4e}"
         )
 
         # ── Save checkpoint ──
         W_np = W.detach().cpu().numpy()
         with h5py.File(os.path.join(recon_path, f_recon_grid + ".h5"), "w") as s:
-            grp = s.create_group("sample")
-            grp.create_dataset(
-                "densities",
-                shape=(n_element, sample_height_n, sample_size_n, sample_size_n),
-                dtype="f4",
-            )
-            grp.create_dataset("elements", shape=(n_element,), dtype="S5")
-            s["sample/densities"][...] = W_np
-            s["sample/elements"][...] = np.array(list(this_aN_dic.keys())).astype("S5")
+            s.create_dataset("densities", data=W_np.astype("f4"))
+            s.create_dataset("elements", data=np.array(list(this_aN_dic.keys())).astype("S5"))
 
         if (outer_ep + 1) % save_every_n_epochs == 0:
-            ckpt_file = os.path.join(checkpoint_path, f"{f_recon_grid}_{outer_ep}.h5")
+            _log(f"Saving checkpoint at epoch {outer_ep + 1}...")
+            ckpt_file = os.path.join(recon_path, f"{f_recon_grid}_{outer_ep + 1}.h5")
             with h5py.File(ckpt_file, "w") as s:
-                grp = s.create_group("sample")
-                grp.create_dataset(
-                    "densities",
-                    shape=(n_element, sample_height_n, sample_size_n, sample_size_n),
-                    dtype="f4",
+                s.create_dataset("densities", data=W_np.astype("f4"))
+                s.create_dataset("elements", data=np.array(list(this_aN_dic.keys())).astype("S5"))
+            from skimage import io as _skio
+            for i, elem in enumerate(list(this_aN_dic.keys())):
+                _skio.imsave(
+                    os.path.join(recon_path, f"{elem}_iter_{outer_ep + 1:02d}.tiff"),
+                    W_np[i].astype(np.float32),
                 )
-                grp.create_dataset("elements", shape=(n_element,), dtype="S5")
-                s["sample/densities"][...] = W_np
-                s["sample/elements"][...] = np.array(list(this_aN_dic.keys())).astype("S5")
+            _log(f"Checkpoint saved: {f_recon_grid}_{outer_ep + 1}.h5")
 
         if progress_callback is not None:
             progress_callback(outer_ep + 1, n_outer_epochs)
@@ -605,8 +610,8 @@ def reconstruct_di_xrftomo(
             pass
 
     # ── Save loss history ──
-    np.save(os.path.join(recon_path, "di_xrf_loss.npy"), np.array(XRF_loss_history))
-    np.save(os.path.join(recon_path, "di_xrt_loss.npy"), np.array(XRT_loss_history))
+    np.save(os.path.join(recon_path, "XRF_loss_signal.npy"), np.array(XRF_loss_history))
+    np.save(os.path.join(recon_path, "XRT_loss_signal.npy"), np.array(XRT_loss_history))
 
     # ── Close handles ──
     P_handle.close()
@@ -614,5 +619,5 @@ def reconstruct_di_xrftomo(
     y2_handle.close()
 
     recon_file = os.path.join(recon_path, f_recon_grid + ".h5")
-    print(f"[Di recon] Done. Result saved to: {recon_file}")
+    _log(f"Reconstruction complete. Result saved to: {recon_file}")
     return recon_file

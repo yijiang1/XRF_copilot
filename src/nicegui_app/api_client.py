@@ -243,6 +243,36 @@ class XRFSimulationAPIClient:
         resp.raise_for_status()
         return resp.json()
 
+    # ── Reconstruction image endpoints ─────────────────────────────────────────
+
+    async def get_session_recon_info(self, session_id: str) -> dict:
+        resp = await self._client.get(
+            f"{self.endpoint}/get_session_recon_info/",
+            params={"session_id": session_id},
+            headers=self._headers(),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_recon_slice(
+        self, session_id: str, elem_idx: int = 0, slice_idx: int = 0,
+        file: str = "",
+    ) -> dict:
+        params = {
+            "session_id": session_id,
+            "elem_idx": elem_idx,
+            "slice_idx": slice_idx,
+        }
+        if file:
+            params["file"] = file
+        resp = await self._client.get(
+            f"{self.endpoint}/get_recon_slice/",
+            params=params,
+            headers=self._headers(),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     # ── GPU & Session endpoints ───────────────────────────────────────────────
 
     async def gpu_status(self) -> dict:

@@ -32,7 +32,7 @@ def create_recon_parameter_form(state: ReconState) -> tuple[dict, list]:
 
                 el = ui.input(
                     "HDF5 Data File",
-                    value="test8.h5",
+                    value="panpan_di_test.h5",
                     placeholder="data.h5",
                 ).classes("w-full font-mono")
                 el.tooltip(
@@ -74,7 +74,7 @@ def create_recon_parameter_form(state: ReconState) -> tuple[dict, list]:
 
                 with ui.row().classes("w-full gap-4"):
                     el = ui.input(
-                        "Recon Grid File", value="grid_concentration"
+                        "Recon Grid File", value="recon"
                     ).classes("flex-1")
                     el.tooltip("Base filename for the output reconstruction grid")
                     input_elements["f_recon_grid"] = el
@@ -88,7 +88,7 @@ def create_recon_parameter_form(state: ReconState) -> tuple[dict, list]:
                     valid_params.append("f_recon_parameters")
 
                 el = ui.input(
-                    "Initial Guess File", value="initialized_grid_concentration"
+                    "Initial Guess File", value="recon_initial"
                 ).classes("w-full")
                 el.tooltip("Base filename for the initial concentration grid")
                 input_elements["f_initial_guess"] = el
@@ -199,7 +199,7 @@ def create_recon_parameter_form(state: ReconState) -> tuple[dict, list]:
                     el = ui.number(
                         "Minibatch Size", value=64, step=8, min=1
                     ).classes("flex-1")
-                    el.tooltip("Number of projection angles per minibatch")
+                    el.tooltip("Number of Z-rows (height slices) processed per batch")
                     input_elements["minibatch_size"] = el
                     valid_params.append("minibatch_size")
 

@@ -59,7 +59,12 @@ def fl_correction_worker_process(params: dict, status_queue, stop_event):
     try:
         # ── Parse params ─────────────────────────────────────────────────────
         fn_root        = params["fn_root"]
-        fn_data        = params.get("fn_data", "everything.h5")
+        out_root       = os.path.join(fn_root, "BNL")
+        os.makedirs(out_root, exist_ok=True)
+        _put_log(f"Output directory: {out_root}")
+        # Announce output path so result viewer can scan for checkpoints
+        status_queue.put({"recon_path": out_root})
+        fn_data        = params.get("fn_data", "bnl_test.h5")
         b              = int(params.get("binning_factor", 4))
         scale          = float(params.get("scale", 1e15))
         ic_channel_idx = int(params.get("ic_channel_idx", -1))
@@ -92,6 +97,13 @@ def fl_correction_worker_process(params: dict, status_queue, stop_event):
             _put_log(f"[torch] Using device: {torch_device}")
         else:
             core = FL_correction_core.Core()
+            if use_gpu:
+                _put_log("Using numba-CUDA path")
+            else:
+                _put_log(f"Using CPU path (num_cpu={num_cpu})")
+
+        _put_log(f"Recon method: {recon_method}, initial recon iters: {recon_n_iter}, "
+                 f"correction iters: {n_corr_iters} x {corr_n_iter} MLEM")
 
         # ── Step 1: Load data ─────────────────────────────────────────────────
         _check_stop()
@@ -201,6 +213,7 @@ def fl_correction_worker_process(params: dict, status_queue, stop_event):
         _put_log(f"Projections binned: {proj_bin.shape}")
 
         # ── Steps 5+: Initial reconstruction per element ──────────────────────
+        _put_log(f"Starting initial reconstruction for {n_elem} elements...")
         rec3D = {}
         for i, ele in enumerate(elem_type):
             _check_stop()
@@ -209,31 +222,38 @@ def fl_correction_worker_process(params: dict, status_queue, stop_event):
                 current_step, total_steps,
                 f"Reconstructing {ele} ({i + 1}/{n_elem})..."
             )
+            t_elem = time.time()
             rec3D[ele] = FL.recon_astra_sub(
                 proj[ele], theta_tomopy, method=recon_method, num_iter=recon_n_iter
             )
-            _put_log(f"  {ele} reconstruction done, shape={rec3D[ele].shape}")
+            _put_log(f"  {ele} reconstruction done in {time.time() - t_elem:.1f}s, shape={rec3D[ele].shape}")
 
         # ── Step: Save initial reconstructions ────────────────────────────────
         _check_stop()
         current_step += 1
         _put_progress(current_step, total_steps, "Saving initial reconstructions...")
         recon_raw = core.pre_treat([rec3D[ele] for ele in elem_type])
-        FL.save_recon(fn_root, recon_raw, elem_type, -2)
+        FL.save_recon(out_root, recon_raw, elem_type, -2)
         s_rr = recon_raw.shape
         recon_bin = FL.bin_ndarray(
             recon_raw,
             (s_rr[0], s_rr[1] // b, s_rr[2] // b, s_rr[3] // b),
             "sum",
         )
-        FL.save_recon(fn_root, recon_bin, elem_type, -1)
+        FL.save_recon(out_root, recon_bin, elem_type, -1)
+        ckpt_file = os.path.join(out_root, "recon", "recon_-1.h5")
+        status_queue.put({
+            "checkpoint_saved": True,
+            "checkpoint_file": ckpt_file,
+            "iteration": -1,
+        })
         _put_log("Initial reconstructions saved (iter -2=full, -1=binned)")
 
         # ── Step: Generate / load detector mask ───────────────────────────────
         _check_stop()
         current_step += 1
         _put_progress(current_step, total_steps, "Preparing detector mask...")
-        fn_mask = os.path.join(fn_root, f"mask3D_{mask_length}.h5")
+        fn_mask = os.path.join(out_root, f"mask3D_{mask_length}.h5")
         if os.path.exists(fn_mask):
             _put_log(f"Loading existing detector mask: {fn_mask}")
             mask3D = core.load_mask3D(fn_mask)
@@ -252,7 +272,7 @@ def fl_correction_worker_process(params: dict, status_queue, stop_event):
         # ── Iterative correction ──────────────────────────────────────────────
         recon_cor = recon_bin.copy()
         ref_prj   = proj_bin
-        fpath_save = os.path.join(fn_root, "recon")
+        fpath_save = os.path.join(out_root, "recon")
         os.makedirs(fpath_save, exist_ok=True)
 
         for it in range(1, n_corr_iters + 1):
@@ -288,6 +308,7 @@ def fl_correction_worker_process(params: dict, status_queue, stop_event):
                         current_step, total_steps,
                         f"Iteration {it}/{n_corr_iters}: correcting {elem} ({i + 1}/{n_elem}) [torch]..."
                     )
+                    t_elem = time.time()
                     ref_tomo     = np.ones(recon_cor[i].shape)
                     # I_obs: (n_sli, n_ang, n_col) = transpose of prj_aligned[i]
                     I_obs_elem   = np.transpose(prj_aligned[i], (1, 0, 2))
@@ -297,9 +318,10 @@ def fl_correction_worker_process(params: dict, status_queue, stop_event):
                         rot_angles, corr_n_iter, torch_device,
                     )
                     recon_cor[i] = FL.rm_boarder(cor, border_pixels)
+                    _put_log(f"  {elem} corrected in {time.time() - t_elem:.1f}s [torch]")
             else:
                 # ── CPU / numba-CUDA path ──────────────────────────────────
-                fsave_iter = os.path.join(fn_root, f"Angle_prj_{it:02d}")
+                fsave_iter = os.path.join(out_root, f"Angle_prj_{it:02d}")
                 core.cal_and_save_atten_prj(
                     param, mu_probe, mu_fl, recon_cor, rot_angles, ref_prj,
                     fsave=fsave_iter, align_flag=False,
@@ -315,6 +337,7 @@ def fl_correction_worker_process(params: dict, status_queue, stop_event):
                         f"Iteration {it}/{n_corr_iters}: correcting {elem} ({i + 1}/{n_elem})..."
                     )
 
+                    t_elem = time.time()
                     ref_tomo = np.ones(recon_cor[i].shape)
 
                     if use_gpu:
@@ -328,8 +351,15 @@ def fl_correction_worker_process(params: dict, status_queue, stop_event):
                             corr_n_iter, num_cpu, True, fpath_save,
                         )
                     recon_cor[i] = FL.rm_boarder(cor, border_pixels)
+                    _put_log(f"  {elem} corrected in {time.time() - t_elem:.1f}s")
 
-            FL.save_recon(fn_root, recon_cor, elem_type, it)
+            FL.save_recon(out_root, recon_cor, elem_type, it)
+            ckpt_file = os.path.join(out_root, "recon", f"recon_{it:02d}.h5")
+            status_queue.put({
+                "checkpoint_saved": True,
+                "checkpoint_file": ckpt_file,
+                "iteration": it,
+            })
             _put_log(
                 f"Iteration {it} complete in {time.time() - ts:.1f}s, saved to {fpath_save}/"
             )

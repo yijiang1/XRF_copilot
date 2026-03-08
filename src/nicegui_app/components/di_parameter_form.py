@@ -72,21 +72,21 @@ def create_di_parameter_form(state: ReconState) -> tuple[dict, list]:
 
                 with ui.row().classes("w-full gap-4"):
                     el = ui.input(
-                        "Recon Grid File", value="di_grid_concentration"
+                        "Recon Grid File", value="recon"
                     ).classes("flex-1")
                     el.tooltip("Base filename for the output reconstruction grid")
                     input_elements["f_recon_grid"] = el
                     valid_params.append("f_recon_grid")
 
                     el = ui.input(
-                        "Recon Parameters File", value="di_recon_parameters.txt"
+                        "Recon Parameters File", value="recon_parameters.txt"
                     ).classes("flex-1")
                     el.tooltip("Filename to save reconstruction parameters summary")
                     input_elements["f_recon_parameters"] = el
                     valid_params.append("f_recon_parameters")
 
                 el = ui.input(
-                    "Initial Guess File", value="di_initialized_grid_concentration"
+                    "Initial Guess File", value="recon_initial"
                 ).classes("w-full")
                 el.tooltip("Base filename for the initial concentration grid")
                 input_elements["f_initial_guess"] = el
@@ -246,7 +246,7 @@ def create_di_parameter_form(state: ReconState) -> tuple[dict, list]:
                         "Minibatch Size", value=64, step=8, min=1
                     ).classes("flex-1")
                     el.tooltip(
-                        "Number of voxels per P-matrix minibatch. "
+                        "Number of Z-rows (height slices) processed per batch. "
                         "Gradient is accumulated over all angles × all batches before L-BFGS step."
                     )
                     input_elements["minibatch_size"] = el

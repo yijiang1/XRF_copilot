@@ -494,7 +494,10 @@ def _read_metadata(filepath: str, data_key: str = "data", elements_key: str = "e
             [n.decode("utf-8") if isinstance(n, bytes) else str(n) for n in f["names"][...]]
             if "names" in f else []
         )
-    return {"elements": elements, "thetas": thetas, "shape": shape, "names": names}
+        pixel_size_nm   = float(f["pixel_size_nm"][()]) if "pixel_size_nm" in f else None
+        probe_energy_keV = float(f["probe_energy_keV"][()]) if "probe_energy_keV" in f else None
+    return {"elements": elements, "thetas": thetas, "shape": shape, "names": names,
+            "pixel_size_nm": pixel_size_nm, "probe_energy_keV": probe_energy_keV}
 
 
 def _read_slice(filepath: str, ch_idx: int, ang_idx: int, data_key: str = "data") -> tuple:
@@ -523,11 +526,17 @@ def create_h5_inspector(
     on_elements_loaded=None,
     on_crop_changed=None,
     pixel_size_nm_ref=None,
+    probe_energy_ref=None,
     data_key: str = "data",
     elements_key: str = "elements",
     thetas_key: str = "thetas",
-) -> None:
+) -> callable:
     """Inline HDF5 data inspector (load button + image viewer).
+
+    Returns:
+        Async callable ``load_file()`` — triggers the same logic as clicking
+        "Load File".  Call it programmatically to restore state after page
+        navigation (file path must already be set on *fn_data_el*).
 
     Args:
         fn_root_el: NiceGUI input element holding the working directory path.
@@ -540,6 +549,8 @@ def create_h5_inspector(
         pixel_size_nm_ref: Optional list[widget] — if provided, pixel_size_nm_ref[0]
             is a NiceGUI number widget whose value (nm/pixel) is injected into JS as
             container._pixelSizeNm so the ruler shows physical distance.
+        probe_energy_ref: Optional list[widget] — if provided, probe_energy_ref[0]
+            is a NiceGUI number widget auto-populated with probe_energy_keV from HDF5.
         data_key: HDF5 dataset path for the data array (default: "data" for BNL;
             use "exchange/data" for APS exchange format).
         elements_key: HDF5 dataset path for channel/element names (default: "elements";
@@ -717,6 +728,12 @@ def create_h5_inspector(
             if on_elements_loaded is not None:
                 on_elements_loaded(result["elements"])
 
+            # Auto-populate pixel size and beam energy if stored in the HDF5 file.
+            if pixel_size_nm_ref is not None and pixel_size_nm_ref[0] is not None:
+                pixel_size_nm_ref[0].set_value(result.get("pixel_size_nm"))
+            if probe_energy_ref is not None and probe_energy_ref[0] is not None:
+                probe_energy_ref[0].set_value(result.get("probe_energy_keV"))
+
             n_ch, n_ang, ny, nx = result["shape"]
             ch_select.options = result["elements"]
             ch_select.value   = result["elements"][0] if result["elements"] else None
@@ -742,6 +759,18 @@ def create_h5_inspector(
                 f"{n_ch} channels, {n_ang} angles, {ny}×{nx} px"
             )
             status_lbl.classes(remove="text-gray-400 text-red-500", add="text-green-600")
+
+            # Reset crop overlay and values when loading a new file
+            if use_crop:
+                ui.run_javascript(f"window._clearCropRect('{_cid()}')")
+                if crop_sw is not None:
+                    crop_sw.set_value(False)
+                if crop_lbl is not None:
+                    crop_lbl.set_text("")
+                    crop_lbl.set_visibility(False)
+                if on_crop_changed is not None:
+                    on_crop_changed(0, 0, -1, -1)
+
             await _show_slice()
 
         except Exception as e:
@@ -846,3 +875,5 @@ def create_h5_inspector(
         crop_sw.on_value_change(on_crop_change)
     if use_crop:
         zoom_wrap.on("cropdrawn", on_crop_drawn)
+
+    return on_load_file

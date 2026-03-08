@@ -246,11 +246,14 @@ def launcher_page():
         ".dot-red   { background:#ef4444; }"
         ".dot-green { background:#22c55e; }"
         ".dot-amber { background:#f59e0b; }"
+        ".nicegui-log { user-select: text !important; cursor: text !important; }"
         "</style>"
         "<script>"
         "new MutationObserver(() => {"
-        "  document.querySelectorAll('.q-log__content').forEach(el => {"
-        "    el.parentElement.scrollTop = el.parentElement.scrollHeight;"
+        "  document.querySelectorAll('.nicegui-log').forEach(el => {"
+        "    const tol = 40;"
+        "    const atBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < tol;"
+        "    if (atBottom) el.scrollTop = el.scrollHeight;"
         "  });"
         "}).observe(document.body, {childList:true, subtree:true});"
         "</script>"
@@ -363,24 +366,61 @@ def launcher_page():
             with ui.row().classes("w-full items-center justify-between mb-2"):
                 ui.label("Output Log").classes("text-base font-semibold text-slate-700")
 
-                async def _save_log():
-                    content = await ui.run_javascript(
-                        "document.querySelector('.q-log__content')?.innerText || ''"
-                    )
-                    if not content:
-                        ui.notify("Log is empty", type="warning")
-                        return
-                    await ui.run_javascript(f"""
-                        const blob = new Blob([{repr(content)}], {{type:'text/plain'}});
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url; a.download = 'xrfcopilot_launcher.log';
-                        a.click(); URL.revokeObjectURL(url);
-                    """)
+                with ui.row().classes("items-center gap-1"):
+                    async def _copy_log():
+                        content = await ui.run_javascript(
+                            "document.querySelector('.nicegui-log')?.innerText || ''"
+                        )
+                        if not content:
+                            ui.notify("Log is empty", type="warning")
+                            return
+                        # navigator.clipboard requires HTTPS; use textarea
+                        # fallback for HTTP origins (typical for LAN apps).
+                        await ui.run_javascript(f"""
+                            (function() {{
+                                const text = {json.dumps(content)};
+                                if (navigator.clipboard && window.isSecureContext) {{
+                                    navigator.clipboard.writeText(text);
+                                }} else {{
+                                    const ta = document.createElement('textarea');
+                                    ta.value = text;
+                                    ta.style.position = 'fixed';
+                                    ta.style.left = '-9999px';
+                                    document.body.appendChild(ta);
+                                    ta.select();
+                                    document.execCommand('copy');
+                                    document.body.removeChild(ta);
+                                }}
+                            }})();
+                        """)
+                        ui.notify("Log copied to clipboard", type="positive", timeout=2000)
 
-                ui.button("Save Log", icon="save", on_click=_save_log).props(
-                    "flat dense size=sm no-caps"
-                )
+                    ui.button("Copy", icon="content_copy", on_click=_copy_log).props(
+                        "flat dense size=sm no-caps"
+                    )
+
+                    async def _save_log():
+                        content = await ui.run_javascript(
+                            "document.querySelector('.nicegui-log')?.innerText || ''"
+                        )
+                        if not content:
+                            ui.notify("Log is empty", type="warning")
+                            return
+                        await ui.run_javascript(f"""
+                            const blob = new Blob([{json.dumps(content)}], {{type:'text/plain'}});
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = 'xrfcopilot_launcher.log';
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                        """)
+
+                    ui.button("Save Log", icon="save", on_click=_save_log).props(
+                        "flat dense size=sm no-caps"
+                    )
 
             log = ui.log(max_lines=300).classes("w-full h-64 font-mono text-xs")
 
@@ -769,14 +809,40 @@ def launcher_page():
             h  = hostname.value.strip()
             u  = username.value.strip()
             pw = password.value or None
-            if not h or not u or not pw:
+            local = _is_local(h)
+
+            if not local and (not h or not u or not pw):
                 ui.notify("Hostname, username, and password are required.", type="negative")
                 return
 
+            def _kill_local():
+                log.push("[launcher] Killing xrf_copilot processes locally...\n")
+                try:
+                    subprocess.run(["pkill", "-f", "src.services.main"], check=False)
+                    subprocess.run(["pkill", "-f", "src.nicegui_app"], check=False)
+                    time.sleep(1)
+                    check_be = subprocess.run(
+                        ["pgrep", "-af", "[s]rc.services.main"],
+                        capture_output=True, text=True,
+                    )
+                    check_fe = subprocess.run(
+                        ["pgrep", "-af", "[s]rc.nicegui_app"],
+                        capture_output=True, text=True,
+                    )
+                    output = (check_be.stdout + check_fe.stdout).strip() or "No remaining processes"
+                    log.push(f"[launcher] {output}\n")
+                    log.push("[launcher] Kill command completed.\n")
+                except Exception as e:
+                    log.push(f"[launcher] Failed to kill local processes: {e}\n")
+
             def _kill_via_two_step():
                 kill_cmd = (
-                    "pkill -f 'src.services.main'; sleep 1; "
-                    "pgrep -af 'src.services.main' || echo 'No remaining processes'"
+                    "pkill -f '[s]rc.services.main'; "
+                    "pkill -f '[s]rc.nicegui_app'; "
+                    "sleep 1; "
+                    "pgrep -af '[s]rc.services.main' || "
+                    "pgrep -af '[s]rc.nicegui_app' || "
+                    "echo 'No remaining processes'"
                 )
                 ssh_part = (
                     f"ssh -tt -o StrictHostKeyChecking=no {h} "
@@ -823,17 +889,32 @@ def launcher_page():
                 log.push("[launcher] Kill command completed.\n")
 
             def do_kill():
-                log.push(f"[launcher] Killing xrf_copilot backend processes on {h}...\n")
+                if local:
+                    _kill_local()
+                    return
+                log.push(f"[launcher] Killing xrf_copilot processes on {h}...\n")
                 try:
                     client = _ssh_connect(h, u, pw)
-                    _, stdout, _ = client.exec_command(
-                        "pkill -f 'src.services.main'; sleep 1; "
-                        "pgrep -af 'src.services.main' || echo 'No remaining processes'"
+                    kill_script = (
+                        "echo '=== Before kill ==='; "
+                        "pgrep -af '[s]rc.services.main' || true; "
+                        "pgrep -af '[s]rc.nicegui_app' || true; "
+                        "pkill -f '[s]rc.services.main'; "
+                        "pkill -f '[s]rc.nicegui_app'; "
+                        "sleep 1; "
+                        "echo '=== After kill ==='; "
+                        "pgrep -af '[s]rc.services.main' || "
+                        "pgrep -af '[s]rc.nicegui_app' || "
+                        "echo 'No remaining processes'"
                     )
+                    _stdin, stdout, stderr = client.exec_command(kill_script)
                     out = stdout.read().decode("utf-8", errors="replace").strip()
+                    err = stderr.read().decode("utf-8", errors="replace").strip()
                     client.close()
                     if out:
                         log.push(f"[launcher] {out}\n")
+                    if err:
+                        log.push(f"[launcher] stderr: {err}\n")
                     log.push("[launcher] Kill command completed.\n")
                 except Exception as e:
                     log.push(f"[launcher] Direct SSH failed: {e}. Trying su+ssh...\n")

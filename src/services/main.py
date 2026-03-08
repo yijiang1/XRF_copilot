@@ -17,6 +17,7 @@ from .routes import recon_setup, recon_run, recon_stop, recon_status
 from .routes import fl_setup, fl_run, fl_stop, fl_status
 from .routes import di_setup, di_run, di_stop, di_status
 from .routes import gpu_status
+from .routes import recon_image
 from .routes import sessions as sessions_route
 from .session_manager import XRFSessionManager
 
@@ -143,6 +144,9 @@ di_run.di_run_endpoint(session_manager, di_setup_output)
 di_stop.di_stop_endpoint(session_manager)
 di_status.di_status_endpoints(session_manager)
 
+# Reconstruction image serving routes (result viewer)
+recon_image.recon_image_endpoints(session_manager)
+
 # Session management routes
 sessions_route.session_endpoints(session_manager)
 
@@ -165,6 +169,7 @@ app.include_router(di_run.router, tags=["Reconstruction (Di et al.)"])
 app.include_router(di_stop.router, tags=["Reconstruction (Di et al.)"])
 app.include_router(di_status.router, tags=["Reconstruction (Di et al.)"])
 app.include_router(gpu_status.router, tags=["GPU"])
+app.include_router(recon_image.router, tags=["Reconstruction Image"])
 app.include_router(sessions_route.router, tags=["Sessions"])
 
 

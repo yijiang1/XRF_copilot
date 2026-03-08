@@ -35,6 +35,7 @@ from ..components.recon_control_panel import _collect_recon_params
 from ..components.di_control_panel import _collect_di_params
 from ..components.status_log import create_status_log
 from ..components.session_bar import create_session_bar
+from ..components.result_viewer import create_result_viewer
 from ..utils.message_formatter import append_to_message_list
 
 # Colour legend for the periodic-table element selector
@@ -57,6 +58,47 @@ def _parse_endpoint(endpoint: str) -> tuple[str, str]:
     return host, port
 
 
+# ── Module-level persistence (survives page navigations) ─────────────────────
+_saved_params: dict = {}
+_saved_tab: dict = {"value": "BNL"}
+_saved_session_state: dict = {
+    "selected_id": "",
+    "fl_messages": [],
+    "recon_messages": [],
+    "di_messages": [],
+    "fl_log_offset": 0,
+    "recon_log_offset": 0,
+    "di_log_offset": 0,
+    "fl_err_reported": False,
+    "recon_err_reported": False,
+    "di_err_reported": False,
+}
+
+# Keys in the per-method input dicts that are real NiceGUI form widgets
+_FL_FORM_KEYS = frozenset({
+    "binning_factor", "scale", "det_alfa", "det_theta", "mask_length_maximum",
+    "recon_method", "recon_n_iter", "n_correction_iters", "correction_n_iter",
+    "border_pixels", "smooth_filter_size", "use_gpu", "num_cpu",
+})
+_RECON_FORM_KEYS = frozenset({
+    "probe_intensity", "probe_att", "n_epochs", "save_every_n_epochs",
+    "minibatch_size", "lr", "b1", "b2", "selfAb", "cont_from_check_point",
+    "use_saved_initial_guess", "ini_kind", "init_const", "manual_det_coord",
+    "manual_det_area", "det_dia_cm", "det_from_sample_cm", "det_ds_spacing_cm",
+    "det_on_which_side", "XRT_ratio_dataset_idx",
+    "scaler_counts_us_ic_dataset_idx", "scaler_counts_ds_ic_dataset_idx", "gpu_id",
+})
+_DI_FORM_KEYS = frozenset({
+    "probe_intensity", "probe_att", "n_outer_epochs", "lbfgs_n_iter",
+    "lbfgs_history", "loss_type", "beta1_xrt", "tikhonov_lambda",
+    "save_every_n_epochs", "minibatch_size", "selfAb", "cont_from_check_point",
+    "use_saved_initial_guess", "ini_kind", "init_const", "manual_det_coord",
+    "manual_det_area", "det_dia_cm", "det_from_sample_cm", "det_ds_spacing_cm",
+    "det_on_which_side", "XRT_ratio_dataset_idx",
+    "scaler_counts_us_ic_dataset_idx", "scaler_counts_ds_ic_dataset_idx", "gpu_id",
+})
+
+
 def create_reconstruction_all_page(api_key: str = ""):
     """Build the unified reconstruction page (all three methods)."""
 
@@ -69,46 +111,52 @@ def create_reconstruction_all_page(api_key: str = ""):
     backend_connected = {"value": False, "error_logged": False}
     init_host, init_port = _parse_endpoint(api.endpoint)
 
-    # ── Backend connection row ────────────────────────────────────────────────
-    with ui.row().classes("w-full justify-center items-end gap-2 mb-2 px-4"):
-        ui.label("Backend:").classes("text-sm font-bold self-center")
-        host_input = (
-            ui.input("Host", value=init_host).classes("w-64").props("dense outlined")
-        )
-        port_input = (
-            ui.input("Port", value=init_port).classes("w-24").props("dense outlined")
-        )
-        api_key_input = ui.input(
-            "API Key", value=api_key, password=True, password_toggle_button=True
-        ).classes("w-48").props("dense outlined")
-        connect_btn = ui.button("Connect", icon="link").props("dense")
-
-    connection_label = ui.label(
-        f"Backend: {api.endpoint}"
-    ).classes("text-sm text-gray-400 text-center w-full mb-2")
-
-    def on_connect():
-        host = host_input.value.strip()
-        port = port_input.value.strip()
-        new_endpoint = f"http://{host}:{port}"
-        api.set_endpoint(new_endpoint)
-        api.set_api_key(api_key_input.value.strip())
-        backend_connected["value"] = False
-        backend_connected["error_logged"] = False
-        connection_label.set_text(f"Backend: {new_endpoint} (connecting...)")
-        connection_label.classes(
-            remove="text-green-600 text-red-500 text-orange-500",
-            add="text-gray-400",
-        )
-
-    connect_btn.on_click(on_connect)
-
     # ── Per-method error / log-offset tracking ─────────────────────────────────
     fl_err    = {"reported": False, "log_offset": 0}
     recon_err = {"reported": False, "log_offset": 0}
     di_err    = {"reported": False, "log_offset": 0}
 
     with ui.column().classes("w-full px-4 gap-4"):
+
+        # ── Backend connection row ────────────────────────────────────────────
+        with ui.card().classes("w-full"):
+            with ui.row().classes("w-full items-end gap-3 flex-wrap"):
+                ui.icon("dns", size="xs").classes("text-gray-400 self-center")
+                ui.label("Backend").classes(
+                    "text-sm font-semibold text-gray-500 self-center"
+                )
+                host_input = ui.input(
+                    "Host", value=init_host
+                ).classes("w-64").props("dense outlined")
+                port_input = ui.input(
+                    "Port", value=init_port
+                ).classes("w-24").props("dense outlined")
+                api_key_input = ui.input(
+                    "API Key", value=api_key, password=True, password_toggle_button=True,
+                ).classes("w-48").props("dense outlined")
+                connect_btn = ui.button(
+                    "Connect", icon="link"
+                ).props("unelevated no-caps color=primary")
+                ui.space()
+                connection_label = ui.label(
+                    f"{api.endpoint}"
+                ).classes("text-xs text-gray-400 self-center")
+
+        def on_connect():
+            host = host_input.value.strip()
+            port = port_input.value.strip()
+            new_endpoint = f"http://{host}:{port}"
+            api.set_endpoint(new_endpoint)
+            api.set_api_key(api_key_input.value.strip())
+            backend_connected["value"] = False
+            backend_connected["error_logged"] = False
+            connection_label.set_text(f"{new_endpoint} (connecting...)")
+            connection_label.classes(
+                remove="text-green-600 text-red-500 text-orange-500",
+                add="text-gray-400",
+            )
+
+        connect_btn.on_click(on_connect)
 
         # ══════════════════════════════════════════════════════════════════════
         # SHARED FILE INPUTS (above tabs)
@@ -209,7 +257,7 @@ def create_reconstruction_all_page(api_key: str = ""):
                         )
                         st.classes(remove="text-gray-400 italic", add="text-gray-600")
 
-                create_h5_inspector(
+                _h5_load_file = create_h5_inspector(
                     _ValueHolder(""),
                     h5_path_el,
                     on_elements_loaded=on_elements_loaded,
@@ -1314,6 +1362,7 @@ def create_reconstruction_all_page(api_key: str = ""):
 
         # Update shared progress and button when tab changes
         def on_tab_change(e):
+            _saved_tab["value"] = e.value
             update_shared_progress()
             update_shared_button()
 
@@ -1331,6 +1380,81 @@ def create_reconstruction_all_page(api_key: str = ""):
                 di_err["log_offset"] = 0
 
             _log_area, update_log = create_status_log(log_state, on_clear=_on_log_clear)
+
+        with combined_card:
+            ui.separator().classes("my-2")
+            _result_container, update_result_viewer = create_result_viewer()
+
+    # ── Persist & restore state across page navigations ────────────────────────
+    # (follows ptycho-gui-mic pattern: module-level dicts + restore on entry)
+
+    def _save_param(key):
+        """Return a callback that saves a parameter value to module-level dict."""
+        def _handler(e):
+            _saved_params[key] = e.value
+        return _handler
+
+    # Shared inputs
+    for _key, _el in [("h5_path", h5_path_el), ("probe_energy", probe_energy_el),
+                      ("pixel_size_nm", pixel_size_nm_el), ("host", host_input),
+                      ("port", port_input), ("api_key", api_key_input),
+                      ("gpu_id", gpu_id_input)]:
+        if _key in _saved_params:
+            _el.set_value(_saved_params[_key])
+        _el.on_value_change(_save_param(_key))
+
+    # Method-specific inputs (skip proxy objects — only real NiceGUI widgets)
+    for _prefix, _inputs, _form_keys in [
+        ("fl", fl_inputs, _FL_FORM_KEYS),
+        ("recon", recon_inputs, _RECON_FORM_KEYS),
+        ("di", di_inputs, _DI_FORM_KEYS),
+    ]:
+        for _key in _form_keys:
+            _el = _inputs.get(_key)
+            if _el is None:
+                continue
+            _skey = f"{_prefix}.{_key}"
+            if _skey in _saved_params:
+                _el.set_value(_saved_params[_skey])
+            _el.on_value_change(_save_param(_skey))
+
+    # Restore backend connection
+    if "host" in _saved_params or "port" in _saved_params:
+        h = _saved_params.get("host", init_host)
+        p = _saved_params.get("port", init_port)
+        api.set_endpoint(f"http://{h}:{p}")
+        if "api_key" in _saved_params:
+            api.set_api_key(_saved_params["api_key"])
+        connection_label.set_text(f"{api.endpoint} (reconnecting...)")
+
+    # Restore session & log state
+    selected_session["id"] = _saved_session_state.get("selected_id", "")
+    fl_state.messages = list(_saved_session_state.get("fl_messages", []))
+    recon_state.messages = list(_saved_session_state.get("recon_messages", []))
+    di_state.messages = list(_saved_session_state.get("di_messages", []))
+    fl_err["log_offset"] = _saved_session_state.get("fl_log_offset", 0)
+    recon_err["log_offset"] = _saved_session_state.get("recon_log_offset", 0)
+    di_err["log_offset"] = _saved_session_state.get("di_log_offset", 0)
+    fl_err["reported"] = _saved_session_state.get("fl_err_reported", False)
+    recon_err["reported"] = _saved_session_state.get("recon_err_reported", False)
+    di_err["reported"] = _saved_session_state.get("di_err_reported", False)
+
+    # Restore active tab
+    if _saved_tab["value"] != "BNL":
+        tabs.set_value(_saved_tab["value"])
+
+    # Render restored state immediately (don't wait for first poll)
+    log_state.messages = fl_state.messages + recon_state.messages + di_state.messages
+    update_log()
+    update_shared_progress()
+    update_shared_button()
+
+    # Auto-reload H5 data if file path was restored (restores data preview,
+    # element tiles, channel dropdown, angle slider — the full Data section)
+    if "h5_path" in _saved_params and _saved_params["h5_path"]:
+        async def _auto_reload_h5():
+            await _h5_load_file()
+        ui.timer(0.8, _auto_reload_h5, once=True)
 
     # ── Polling timer ─────────────────────────────────────────────────────────
     async def poll_backend():
@@ -1393,7 +1517,7 @@ def create_reconstruction_all_page(api_key: str = ""):
             if not backend_connected["value"]:
                 backend_connected["value"] = True
                 backend_connected["error_logged"] = False
-                connection_label.set_text(f"Backend: {api.endpoint} (connected)")
+                connection_label.set_text(f"{api.endpoint} (connected)")
                 connection_label.classes(
                     remove="text-red-500 text-gray-400 text-orange-500",
                     add="text-green-600",
@@ -1408,7 +1532,7 @@ def create_reconstruction_all_page(api_key: str = ""):
                     if e.response.status_code == 403
                     else f"(error {e.response.status_code})"
                 )
-                connection_label.set_text(f"Backend: {api.endpoint} {lbl}")
+                connection_label.set_text(f"{api.endpoint} {lbl}")
                 connection_label.classes(
                     remove="text-green-600 text-gray-400",
                     add="text-orange-500" if e.response.status_code == 403 else "text-red-500",
@@ -1417,7 +1541,7 @@ def create_reconstruction_all_page(api_key: str = ""):
             if not backend_connected["error_logged"]:
                 backend_connected["error_logged"] = True
                 backend_connected["value"] = False
-                connection_label.set_text(f"Backend: {api.endpoint} (not reachable)")
+                connection_label.set_text(f"{api.endpoint} (not reachable)")
                 connection_label.classes(
                     remove="text-green-600 text-gray-400 text-orange-500",
                     add="text-red-500",
@@ -1556,4 +1680,21 @@ def create_reconstruction_all_page(api_key: str = ""):
         except Exception:
             pass
 
-    ui.timer(2.0, poll_backend)
+        # ── Update result viewer ─────────────────────────────────────────────
+        sid = selected_session["id"]
+        if sid:
+            await update_result_viewer(api, sid)
+
+        # ── Save session state for navigation persistence ──────────────────────
+        _saved_session_state["selected_id"] = selected_session["id"]
+        _saved_session_state["fl_messages"] = list(fl_state.messages)
+        _saved_session_state["recon_messages"] = list(recon_state.messages)
+        _saved_session_state["di_messages"] = list(di_state.messages)
+        _saved_session_state["fl_log_offset"] = fl_err["log_offset"]
+        _saved_session_state["recon_log_offset"] = recon_err["log_offset"]
+        _saved_session_state["di_log_offset"] = di_err["log_offset"]
+        _saved_session_state["fl_err_reported"] = fl_err["reported"]
+        _saved_session_state["recon_err_reported"] = recon_err["reported"]
+        _saved_session_state["di_err_reported"] = di_err["reported"]
+
+    ui.timer(3.0, poll_backend)

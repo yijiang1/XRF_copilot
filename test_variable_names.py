@@ -150,7 +150,7 @@ check("'elements_atomic_numbers' key absent from recon params dict",
 
 # ── 5. HDF5 angle loading with theta_ls_dataset (BNL data) ───────────────────
 print("\n[5] HDF5 angle loading — BNL format ('thetas' key)")
-fn_data = os.path.join(DATA_ROOT, "fl_correction", "everything.h5")
+fn_data = os.path.join(DATA_ROOT, "fl_correction", "bnl_test.h5")
 if os.path.exists(fn_data):
     theta_key = "thetas"   # matches FLCorrectionParams default
     with h5py.File(fn_data, "r") as f:

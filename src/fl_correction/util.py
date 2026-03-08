@@ -54,13 +54,17 @@ def read_recon_all_elem(fn_root, iter_id, elem_type):
     return recon4D
 
 def save_recon(fn_root, recon_cor, elem_type, iter_id):
+    import numpy as np
     from skimage import io
     fsave_root = fn_root + f'/recon'
     mk_directory(fsave_root)
+    # HDF5: flat format — densities [n_elem, H, N, N] + elements [n_elem]
     fn_cor_save = fn_root + f'/recon/recon_{iter_id:02d}.h5'
+    stack = np.stack([recon_cor[i].astype(np.float32) for i in range(len(elem_type))], axis=0)
     with h5py.File(fn_cor_save, 'w') as hf:
-        for i, key in enumerate(elem_type):
-            hf.create_dataset(key, data=recon_cor[i].astype(np.float32))
+        hf.create_dataset("densities", data=stack)
+        hf.create_dataset("elements", data=np.array(list(elem_type), dtype='S5'))
+    # per-element TIFFs
     for i, elem in enumerate(elem_type):
         fsave_tiff = fn_root + f'/recon/{elem}_iter_{iter_id:02d}.tiff'
         io.imsave(fsave_tiff, recon_cor[i].astype(np.float32))

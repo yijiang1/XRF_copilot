@@ -2,7 +2,7 @@
 
 Strategy:
   1. Verify bundled imports work
-  2. Load the same data (everything.h5) and normalize projections
+  2. Load the same data (bnl_test.h5) and normalize projections
   3. Compare our projections against reference (deterministic — same math)
   4. Load the reference recon_-1.h5 (initial binned reconstruction) and run
      ONE correction iteration using our bundled code, then compare against
@@ -39,7 +39,7 @@ core = FL_correction_core.Core()
 
 # ── Step 2: Load data (same as XRF_corr_APS_YJ.py) ───────────────────────────
 print("\n[2] Loading data...")
-fn_data  = os.path.join(REF_ROOT, "everything.h5")
+fn_data  = os.path.join(REF_ROOT, "bnl_test.h5")
 fn_param = os.path.join(REF_ROOT, "param.txt")
 b        = 4
 scale    = 1e15
