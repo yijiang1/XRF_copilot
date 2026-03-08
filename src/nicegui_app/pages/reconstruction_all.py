@@ -78,15 +78,14 @@ _saved_session_state: dict = {
 _FL_FORM_KEYS = frozenset({
     "binning_factor", "scale", "det_alfa", "det_theta", "mask_length_maximum",
     "recon_method", "recon_n_iter", "n_correction_iters", "correction_n_iter",
-    "border_pixels", "smooth_filter_size", "use_gpu", "num_cpu",
+    "border_pixels", "smooth_filter_size",
 })
 _RECON_FORM_KEYS = frozenset({
     "probe_intensity", "probe_att", "n_epochs", "save_every_n_epochs",
     "minibatch_size", "lr", "b1", "b2", "selfAb", "cont_from_check_point",
     "use_saved_initial_guess", "ini_kind", "init_const", "manual_det_coord",
     "manual_det_area", "det_dia_cm", "det_from_sample_cm", "det_ds_spacing_cm",
-    "det_on_which_side", "XRT_ratio_dataset_idx",
-    "scaler_counts_us_ic_dataset_idx", "scaler_counts_ds_ic_dataset_idx", "gpu_id",
+    "det_on_which_side",
 })
 _DI_FORM_KEYS = frozenset({
     "probe_intensity", "probe_att", "n_outer_epochs", "lbfgs_n_iter",
@@ -94,8 +93,7 @@ _DI_FORM_KEYS = frozenset({
     "save_every_n_epochs", "minibatch_size", "selfAb", "cont_from_check_point",
     "use_saved_initial_guess", "ini_kind", "init_const", "manual_det_coord",
     "manual_det_area", "det_dia_cm", "det_from_sample_cm", "det_ds_spacing_cm",
-    "det_on_which_side", "XRT_ratio_dataset_idx",
-    "scaler_counts_us_ic_dataset_idx", "scaler_counts_ds_ic_dataset_idx", "gpu_id",
+    "det_on_which_side",
 })
 
 
@@ -209,38 +207,29 @@ def create_reconstruction_all_page(api_key: str = ""):
                         "flat dense"
                     ).tooltip("Browse for HDF5 file")
 
-                with ui.row().classes("w-full gap-4 items-end"):
-                    probe_energy_el = ui.number(
-                        "X-ray Energy (keV)", value=None, step=0.01, min=0.1,
-                        format="%.3f",
-                    ).classes("w-48")
-                    probe_energy_el.tooltip(
-                        "Incident beam energy in keV — used by all three methods. "
-                        "Auto-loaded from HDF5 if the file stores 'probe_energy_keV'."
-                    )
-
-                    pixel_size_nm_el = ui.number(
-                        "Pixel Size (nm)", value=None, step=10, min=1,
-                    ).classes("w-48")
-                    pixel_size_nm_el.tooltip(
-                        "Voxel size in nm — used by all three methods. "
-                        "Auto-loaded from HDF5 if the file stores 'pixel_size_nm'. "
-                        "For Panpan/Di, grid dimensions are auto-detected from data shape."
-                    )
-
                 # ── Derive fn_root / fn_data proxies from the single path input ─
                 fn_root_el = _DirProxy(h5_path_el)
                 fn_data_el = _BasenameProxy(h5_path_el)
 
-                # ── Shared H5 inspector (Load File + data viewer) ─────────────
-                # h5_inspector sees fn_data_el.value as an absolute path and
-                # resolves the file directly (fn_root_el is unused in that case).
+                # ── Shared H5 inspector (Load Data + data viewer) ─────────────
+                # Placed before energy/pixel_size so that auto-loaded values
+                # from HDF5 fill those fields after the user clicks "Load Data".
                 elem_selector   = _ElementSelector()
                 ic_selector     = _ICSelector()
+                # Channel selectors for Panpan/Di data indexing
+                recon_xrt_sel   = _ICSelector(default_name="abs_ic")
+                recon_us_ic_sel = _ICSelector(default_name="us_ic")
+                recon_ds_ic_sel = _ICSelector(default_name="ds_ic")
+                di_xrt_sel      = _ICSelector(default_name="abs_ic")
+                di_us_ic_sel    = _ICSelector(default_name="us_ic")
+                di_ds_ic_sel    = _ICSelector(default_name="ds_ic")
                 _elem_ui        = {"container": None, "status": None}
                 _crop_cb_ref    = [None]
-                _pixel_size_ref  = [pixel_size_nm_el]
-                _energy_ref      = [probe_energy_el]
+
+                # Forward-declare refs; actual widgets created below after
+                # create_h5_inspector so that the Load button sits above them.
+                _pixel_size_ref  = [None]
+                _energy_ref      = [None]
 
                 def on_elements_loaded(names: list) -> None:
                     ctr = _elem_ui["container"]
@@ -249,6 +238,10 @@ def create_reconstruction_all_page(api_key: str = ""):
                         return
                     elem_selector.populate(names, ctr)
                     ic_selector.populate(names)
+                    # Populate channel selectors for Panpan/Di data indexing
+                    for sel in (recon_xrt_sel, recon_us_ic_sel, recon_ds_ic_sel,
+                                di_xrt_sel, di_us_ic_sel, di_ds_ic_sel):
+                        sel.populate(names)
                     elem_selector.autofill_from_xraylib()
                     if st is not None:
                         st.set_text(
@@ -267,6 +260,32 @@ def create_reconstruction_all_page(api_key: str = ""):
                     pixel_size_nm_ref=_pixel_size_ref,
                     probe_energy_ref=_energy_ref,
                 )
+
+                # ── Beam energy & pixel size (below Load Data) ────────────────
+                with ui.row().classes("w-full gap-4 items-end"):
+                    probe_energy_el = ui.number(
+                        "Beam Energy (keV)", value=None, step=0.01, min=0.1,
+                        format="%.3f",
+                        validation={"Required": lambda v: v is not None},
+                    ).classes("w-48")
+                    probe_energy_el.tooltip(
+                        "Incident beam energy in keV — used by all three methods. "
+                        "Auto-loaded from HDF5 if the file stores 'probe_energy_keV'."
+                    )
+
+                    pixel_size_nm_el = ui.number(
+                        "Pixel Size (nm)", value=None, step=10, min=1,
+                        validation={"Required": lambda v: v is not None},
+                    ).classes("w-48")
+                    pixel_size_nm_el.tooltip(
+                        "Voxel size in nm — used by all three methods. "
+                        "Auto-loaded from HDF5 if the file stores 'pixel_size_nm'. "
+                        "For Panpan/Di, grid dimensions are auto-detected from data shape."
+                    )
+
+                # Wire up the refs now that the widgets exist
+                _pixel_size_ref[0] = pixel_size_nm_el
+                _energy_ref[0] = probe_energy_el
 
                 # ── Element selector (shared — all three methods) ─────────────
                 ui.separator().classes("mt-1")
@@ -471,22 +490,9 @@ def create_reconstruction_all_page(api_key: str = ""):
                         fl_inputs["smooth_filter_size"] = el
                         fl_valid.append("smooth_filter_size")
 
-                    ui.separator().classes("my-1")
-                    ui.label("Compute Settings").classes(
-                        "text-sm font-semibold text-gray-700"
-                    )
-                    with ui.row().classes("w-full gap-8 items-center"):
-                        el = ui.switch("Use GPU (CUDA)", value=True)
-                        el.tooltip("Use CUDA-accelerated absorption correction")
-                        fl_inputs["use_gpu"] = el
-                        fl_valid.append("use_gpu")
-
-                        el = ui.number(
-                            "CPU Cores", value=8, step=1, min=1
-                        ).classes("flex-1")
-                        el.tooltip("Number of CPU cores for parallel attenuation computation")
-                        fl_inputs["num_cpu"] = el
-                        fl_valid.append("num_cpu")
+                    # Always use GPU for BNL; hardcode defaults
+                    fl_inputs["use_gpu"] = _ValueHolder(True)
+                    fl_inputs["num_cpu"] = _ValueHolder(8)
 
             # ══════════════════════════════════════════════════════════════════
             # PANPAN TAB
@@ -497,114 +503,39 @@ def create_reconstruction_all_page(api_key: str = ""):
                     recon_inputs: dict = {"fn_root": fn_root_el, "fn_data": fn_data_el, "probe_energy": probe_energy_el}
                     recon_valid: list  = ["fn_root", "fn_data", "probe_energy"]
 
-                    # Sample & Probe ──────────────────────────────────────
-                    ui.label("Sample & Probe").classes(
-                        "text-sm font-semibold text-gray-700"
-                    )
-                    ui.label(
-                        "Grid dimensions (sample width/height in pixels) are auto-detected "
-                        "from the HDF5 data shape. Pixel size is set in the Data section above."
-                    ).classes("text-xs text-gray-400 italic")
                     recon_inputs["pixel_size_nm"] = pixel_size_nm_el
 
-                    el = ui.number(
-                        "Probe Intensity", value=1.0e7, step=1e6, min=1
-                    ).classes("w-full")
-                    el.tooltip("Incident probe intensity (photons/s)")
-                    recon_inputs["probe_intensity"] = el
-                    recon_valid.append("probe_intensity")
-
-                    el = ui.switch("Model Probe Attenuation", value=True)
-                    el.tooltip("Account for probe beam attenuation through the sample")
-                    recon_inputs["probe_att"] = el
-                    recon_valid.append("probe_att")
-
-                    ui.separator().classes("my-1")
-
-                    # Reconstruction Settings (Adam) ───────────────────────
-                    ui.label("Reconstruction Settings (Adam optimizer)").classes(
+                    # Data Parameters ──────────────────────────────────────
+                    ui.label("Data Parameters").classes(
                         "text-sm font-semibold text-gray-700"
                     )
                     with ui.row().classes("w-full gap-4"):
                         el = ui.number(
-                            "Epochs", value=300, step=10, min=1
+                            "Probe Intensity", value=1.0e7, step=1e6, min=1
                         ).classes("flex-1")
-                        el.tooltip("Total number of reconstruction epochs")
-                        recon_inputs["n_epochs"] = el
-                        recon_valid.append("n_epochs")
+                        el.tooltip("Incident probe intensity (photons/s)")
+                        recon_inputs["probe_intensity"] = el
+                        recon_valid.append("probe_intensity")
 
-                        el = ui.number(
-                            "Save Every N", value=10, step=1, min=1
-                        ).classes("flex-1")
-                        el.tooltip("Save a checkpoint every N epochs")
-                        recon_inputs["save_every_n_epochs"] = el
-                        recon_valid.append("save_every_n_epochs")
+                        recon_xrt_sel.create_widget("XRT Ratio Channel").tooltip(
+                            "HDF5 channel for XRT transmission ratio data"
+                        )
+                        recon_inputs["XRT_ratio_dataset_idx"] = recon_xrt_sel
 
-                        el = ui.number(
-                            "Minibatch Size", value=64, step=8, min=1
-                        ).classes("flex-1")
-                        el.tooltip("Number of projection angles per minibatch")
-                        recon_inputs["minibatch_size"] = el
-                        recon_valid.append("minibatch_size")
+                        recon_us_ic_sel.create_widget("Upstream IC Channel").tooltip(
+                            "HDF5 channel for upstream ion chamber counts"
+                        )
+                        recon_inputs["scaler_counts_us_ic_dataset_idx"] = recon_us_ic_sel
 
-                    with ui.row().classes("w-full gap-4"):
-                        el = ui.number(
-                            "Learning Rate", value=1.0e-3, step=1e-4,
-                            min=1e-8, format="%.6f"
-                        ).classes("flex-1")
-                        el.tooltip("Adam optimizer learning rate")
-                        recon_inputs["lr"] = el
-                        recon_valid.append("lr")
+                        recon_ds_ic_sel.create_widget("Downstream IC Channel").tooltip(
+                            "HDF5 channel for downstream ion chamber counts"
+                        )
+                        recon_inputs["scaler_counts_ds_ic_dataset_idx"] = recon_ds_ic_sel
 
-                        el = ui.number(
-                            "Beta 1", value=0.0, step=0.01,
-                            min=0.0, max=1.0, format="%.3f"
-                        ).classes("flex-1")
-                        el.tooltip("Adam beta1 (first moment decay)")
-                        recon_inputs["b1"] = el
-                        recon_valid.append("b1")
-
-                        el = ui.number(
-                            "Beta 2", value=1.0, step=0.01,
-                            min=0.0, max=1.0, format="%.3f"
-                        ).classes("flex-1")
-                        el.tooltip("Adam beta2 (second moment decay)")
-                        recon_inputs["b2"] = el
-                        recon_valid.append("b2")
-
-                    with ui.row().classes("w-full gap-8"):
-                        el = ui.switch("Self-Absorption", value=True)
-                        el.tooltip("Account for self-absorption of fluorescent X-rays")
-                        recon_inputs["selfAb"] = el
-                        recon_valid.append("selfAb")
-
-                        el = ui.switch("Continue from Checkpoint", value=False)
-                        el.tooltip("Resume from a previously saved checkpoint")
-                        recon_inputs["cont_from_check_point"] = el
-                        recon_valid.append("cont_from_check_point")
-
-                        el = ui.switch("Use Saved Initial Guess", value=False)
-                        el.tooltip("Load a previously saved initial concentration grid")
-                        recon_inputs["use_saved_initial_guess"] = el
-                        recon_valid.append("use_saved_initial_guess")
-
-                    with ui.row().classes("w-full gap-4"):
-                        el = ui.select(
-                            label="Initialization Kind",
-                            options=["const", "rand"],
-                            value="const",
-                        ).classes("flex-1")
-                        el.tooltip("How to initialize the concentration grid")
-                        recon_inputs["ini_kind"] = el
-                        recon_valid.append("ini_kind")
-
-                        el = ui.number(
-                            "Initial Constant", value=0.0,
-                            step=0.01, format="%.4f"
-                        ).classes("flex-1")
-                        el.tooltip("Initial concentration value when ini_kind='const'")
-                        recon_inputs["init_const"] = el
-                        recon_valid.append("init_const")
+                    recon_inputs["theta_ls_dataset"] = _ValueHolder("rot_angles")
+                    recon_inputs["channel_names"]   = _ValueHolder("elements")
+                    recon_inputs["element_symbols"] = elem_selector
+                    recon_inputs["emission_energy"] = _EmissionProxy(elem_selector)
 
                     ui.separator().classes("my-1")
 
@@ -656,47 +587,99 @@ def create_reconstruction_all_page(api_key: str = ""):
 
                     ui.separator().classes("my-1")
 
-                    # Data Indexing ───────────────────────────────────────
-                    ui.label("Data Indexing").classes(
+                    # Reconstruction Parameters (Adam) ─────────────────────
+                    ui.label("Reconstruction Parameters").classes(
                         "text-sm font-semibold text-gray-700"
                     )
                     with ui.row().classes("w-full gap-4"):
                         el = ui.number(
-                            "XRT Ratio Dataset Index", value=6, step=1, min=0
+                            "Epochs", value=300, step=10, min=1
                         ).classes("flex-1")
-                        el.tooltip("HDF5 dataset index for XRT transmission ratio data")
-                        recon_inputs["XRT_ratio_dataset_idx"] = el
-                        recon_valid.append("XRT_ratio_dataset_idx")
+                        el.tooltip("Total number of reconstruction epochs")
+                        recon_inputs["n_epochs"] = el
+                        recon_valid.append("n_epochs")
 
                         el = ui.number(
-                            "Upstream IC Index", value=4, step=1, min=0
+                            "Save Every N", value=10, step=1, min=1
                         ).classes("flex-1")
-                        el.tooltip("HDF5 dataset index for upstream ion chamber counts")
-                        recon_inputs["scaler_counts_us_ic_dataset_idx"] = el
-                        recon_valid.append("scaler_counts_us_ic_dataset_idx")
+                        el.tooltip("Save a checkpoint every N epochs")
+                        recon_inputs["save_every_n_epochs"] = el
+                        recon_valid.append("save_every_n_epochs")
 
                         el = ui.number(
-                            "Downstream IC Index", value=5, step=1, min=0
+                            "Minibatch Size", value=64, min=1
                         ).classes("flex-1")
-                        el.tooltip("HDF5 dataset index for downstream ion chamber counts")
-                        recon_inputs["scaler_counts_ds_ic_dataset_idx"] = el
-                        recon_valid.append("scaler_counts_ds_ic_dataset_idx")
+                        el.tooltip(
+                            "Number of voxel strips (from flattened H\u00d7W grid) per gradient update. "
+                            "Total strips = height \u00d7 width. Smaller = more updates per epoch (SGD); "
+                            "larger = fewer updates (full batch). Per-epoch time is similar either way."
+                        )
+                        recon_inputs["minibatch_size"] = el
+                        recon_valid.append("minibatch_size")
 
-                    recon_inputs["theta_ls_dataset"] = _ValueHolder("rot_angles")
-                    recon_inputs["channel_names"]   = _ValueHolder("elements")
-                    recon_inputs["element_symbols"] = elem_selector
-                    recon_inputs["emission_energy"] = _EmissionProxy(elem_selector)
+                    with ui.row().classes("w-full gap-4"):
+                        el = ui.number(
+                            "Learning Rate", value=1.0e-3, step=1e-4,
+                            min=1e-8, format="%.6f"
+                        ).classes("flex-1")
+                        el.tooltip("Adam optimizer learning rate")
+                        recon_inputs["lr"] = el
+                        recon_valid.append("lr")
 
-                    ui.separator().classes("my-1")
+                        el = ui.number(
+                            "Beta 1", value=0.0, step=0.01,
+                            min=0.0, max=1.0, format="%.3f"
+                        ).classes("flex-1")
+                        el.tooltip("Adam beta1 (first moment decay)")
+                        recon_inputs["b1"] = el
+                        recon_valid.append("b1")
 
-                    # Compute ─────────────────────────────────────────────
-                    ui.label("Compute Settings").classes(
-                        "text-sm font-semibold text-gray-700"
-                    )
-                    el = ui.number("GPU ID", value=3, step=1, min=-1).classes("w-full")
-                    el.tooltip("GPU device ID to use (-1 for CPU)")
-                    recon_inputs["gpu_id"] = el
-                    recon_valid.append("gpu_id")
+                        el = ui.number(
+                            "Beta 2", value=1.0, step=0.01,
+                            min=0.0, max=1.0, format="%.3f"
+                        ).classes("flex-1")
+                        el.tooltip("Adam beta2 (second moment decay)")
+                        recon_inputs["b2"] = el
+                        recon_valid.append("b2")
+
+                    with ui.row().classes("w-full gap-4"):
+                        el = ui.select(
+                            label="Initialization Kind",
+                            options=["const", "rand"],
+                            value="const",
+                        ).classes("flex-1")
+                        el.tooltip("How to initialize the concentration grid")
+                        recon_inputs["ini_kind"] = el
+                        recon_valid.append("ini_kind")
+
+                        el = ui.number(
+                            "Initial Constant", value=0.0,
+                            step=0.01, format="%.4f"
+                        ).classes("flex-1")
+                        el.tooltip("Initial concentration value when ini_kind='const'")
+                        recon_inputs["init_const"] = el
+                        recon_valid.append("init_const")
+
+                    with ui.row().classes("w-full gap-8"):
+                        el = ui.switch("Self-Absorption Correction", value=True)
+                        el.tooltip("Account for self-absorption of fluorescent X-rays")
+                        recon_inputs["selfAb"] = el
+                        recon_valid.append("selfAb")
+
+                        el = ui.switch("Probe Attenuation Correction", value=True)
+                        el.tooltip("Account for probe beam attenuation through the sample")
+                        recon_inputs["probe_att"] = el
+                        recon_valid.append("probe_att")
+
+                        el = ui.switch("Continue from Checkpoint", value=False)
+                        el.tooltip("Resume from a previously saved checkpoint")
+                        recon_inputs["cont_from_check_point"] = el
+                        recon_valid.append("cont_from_check_point")
+
+                        el = ui.switch("Use Saved Initial Guess", value=False)
+                        el.tooltip("Load a previously saved initial concentration grid")
+                        recon_inputs["use_saved_initial_guess"] = el
+                        recon_valid.append("use_saved_initial_guess")
 
             # ══════════════════════════════════════════════════════════════════
             # DI TAB
@@ -707,32 +690,92 @@ def create_reconstruction_all_page(api_key: str = ""):
                     di_inputs: dict = {"fn_root": fn_root_el, "fn_data": fn_data_el, "probe_energy": probe_energy_el}
                     di_valid: list  = ["fn_root", "fn_data", "probe_energy"]
 
-                    # Sample & Probe ──────────────────────────────────────
-                    ui.label("Sample & Probe").classes(
-                        "text-sm font-semibold text-gray-700"
-                    )
-                    ui.label(
-                        "Grid dimensions (sample width/height in pixels) are auto-detected "
-                        "from the HDF5 data shape. Pixel size is set in the Data section above."
-                    ).classes("text-xs text-gray-400 italic")
                     di_inputs["pixel_size_nm"] = pixel_size_nm_el
 
-                    el = ui.number(
-                        "Probe Intensity", value=1.0e7, step=1e6, min=1
-                    ).classes("w-full")
-                    el.tooltip("Incident probe intensity (photons/s)")
-                    di_inputs["probe_intensity"] = el
-                    di_valid.append("probe_intensity")
+                    # Data Parameters ──────────────────────────────────────
+                    ui.label("Data Parameters").classes(
+                        "text-sm font-semibold text-gray-700"
+                    )
+                    with ui.row().classes("w-full gap-4"):
+                        el = ui.number(
+                            "Probe Intensity", value=1.0e7, step=1e6, min=1
+                        ).classes("flex-1")
+                        el.tooltip("Incident probe intensity (photons/s)")
+                        di_inputs["probe_intensity"] = el
+                        di_valid.append("probe_intensity")
 
-                    el = ui.switch("Model Probe Attenuation", value=True)
-                    el.tooltip("Account for probe beam attenuation through the sample")
-                    di_inputs["probe_att"] = el
-                    di_valid.append("probe_att")
+                        di_xrt_sel.create_widget("XRT Ratio Channel").tooltip(
+                            "Channel used as XRT transmission ratio (typically abs_ic)"
+                        )
+                        di_inputs["XRT_ratio_dataset_idx"] = di_xrt_sel
+
+                        di_us_ic_sel.create_widget("Upstream IC Channel").tooltip(
+                            "Channel for upstream ion chamber counts (typically us_ic)"
+                        )
+                        di_inputs["scaler_counts_us_ic_dataset_idx"] = di_us_ic_sel
+
+                        di_ds_ic_sel.create_widget("Downstream IC Channel").tooltip(
+                            "Channel for downstream ion chamber counts (typically ds_ic)"
+                        )
+                        di_inputs["scaler_counts_ds_ic_dataset_idx"] = di_ds_ic_sel
+
+                    di_inputs["theta_ls_dataset"] = _ValueHolder("rot_angles")
+                    di_inputs["channel_names"]   = _ValueHolder("elements")
+                    di_inputs["element_symbols"] = elem_selector
+                    di_inputs["emission_energy"] = _EmissionProxy(elem_selector)
 
                     ui.separator().classes("my-1")
 
-                    # Optimizer (L-BFGS bi-level) ─────────────────────────
-                    ui.label("Optimizer Settings (L-BFGS bi-level)").classes(
+                    # Detector Geometry ───────────────────────────────────
+                    ui.label("Detector Geometry").classes(
+                        "text-sm font-semibold text-gray-700"
+                    )
+                    with ui.row().classes("w-full gap-8"):
+                        el = ui.switch("Manual Detector Coordinates", value=False)
+                        el.tooltip("Use manually specified detector coordinates")
+                        di_inputs["manual_det_coord"] = el
+                        di_valid.append("manual_det_coord")
+
+                        el = ui.switch("Manual Detector Area", value=False)
+                        el.tooltip("Use manually specified detector area")
+                        di_inputs["manual_det_area"] = el
+                        di_valid.append("manual_det_area")
+
+                    with ui.row().classes("w-full gap-4"):
+                        el = ui.number(
+                            "Detector Diameter (cm)", value=0.9, step=0.1, min=0.01
+                        ).classes("flex-1")
+                        el.tooltip("Fluorescence detector diameter in cm")
+                        di_inputs["det_dia_cm"] = el
+                        di_valid.append("det_dia_cm")
+
+                        el = ui.number(
+                            "Sample-Det Distance (cm)", value=1.6, step=0.1, min=0.01
+                        ).classes("flex-1")
+                        el.tooltip("Distance from sample to detector in cm")
+                        di_inputs["det_from_sample_cm"] = el
+                        di_valid.append("det_from_sample_cm")
+
+                        el = ui.number(
+                            "Det Pixel Spacing (cm)", value=0.4, step=0.05, min=0.01
+                        ).classes("flex-1")
+                        el.tooltip("Spacing between detector pixels in cm")
+                        di_inputs["det_ds_spacing_cm"] = el
+                        di_valid.append("det_ds_spacing_cm")
+
+                    el = ui.select(
+                        label="Detector Side",
+                        options=["positive", "negative"],
+                        value="positive",
+                    ).classes("w-full")
+                    el.tooltip("Which side of the sample the detector is on")
+                    di_inputs["det_on_which_side"] = el
+                    di_valid.append("det_on_which_side")
+
+                    ui.separator().classes("my-1")
+
+                    # Reconstruction Parameters (L-BFGS bi-level) ──────────
+                    ui.label("Reconstruction Parameters").classes(
                         "text-sm font-semibold text-gray-700"
                     )
                     with ui.row().classes("w-full gap-4"):
@@ -798,27 +841,14 @@ def create_reconstruction_all_page(api_key: str = ""):
                         di_valid.append("save_every_n_epochs")
 
                         el = ui.number(
-                            "Minibatch Size", value=64, step=8, min=1
+                            "Minibatch Size", value=64, min=1
                         ).classes("flex-1")
-                        el.tooltip("Voxels per P-matrix minibatch")
+                        el.tooltip(
+                            "Number of voxel strips per gradient update (same as Panpan). "
+                            "Controls how many strips of the H\u00d7W grid are processed per L-BFGS step."
+                        )
                         di_inputs["minibatch_size"] = el
                         di_valid.append("minibatch_size")
-
-                    with ui.row().classes("w-full gap-8"):
-                        el = ui.switch("Self-Absorption", value=True)
-                        el.tooltip("Account for self-absorption of fluorescent X-rays")
-                        di_inputs["selfAb"] = el
-                        di_valid.append("selfAb")
-
-                        el = ui.switch("Continue from Checkpoint", value=False)
-                        el.tooltip("Resume from a previously saved checkpoint")
-                        di_inputs["cont_from_check_point"] = el
-                        di_valid.append("cont_from_check_point")
-
-                        el = ui.switch("Use Saved Initial Guess", value=False)
-                        el.tooltip("Load a previously saved initial concentration grid")
-                        di_inputs["use_saved_initial_guess"] = el
-                        di_valid.append("use_saved_initial_guess")
 
                     with ui.row().classes("w-full gap-4"):
                         el = ui.select(
@@ -838,97 +868,26 @@ def create_reconstruction_all_page(api_key: str = ""):
                         di_inputs["init_const"] = el
                         di_valid.append("init_const")
 
-                    ui.separator().classes("my-1")
-
-                    # Detector Geometry ───────────────────────────────────
-                    ui.label("Detector Geometry").classes(
-                        "text-sm font-semibold text-gray-700"
-                    )
                     with ui.row().classes("w-full gap-8"):
-                        el = ui.switch("Manual Detector Coordinates", value=False)
-                        el.tooltip("Use manually specified detector coordinates")
-                        di_inputs["manual_det_coord"] = el
-                        di_valid.append("manual_det_coord")
+                        el = ui.switch("Self-Absorption Correction", value=True)
+                        el.tooltip("Account for self-absorption of fluorescent X-rays")
+                        di_inputs["selfAb"] = el
+                        di_valid.append("selfAb")
 
-                        el = ui.switch("Manual Detector Area", value=False)
-                        el.tooltip("Use manually specified detector area")
-                        di_inputs["manual_det_area"] = el
-                        di_valid.append("manual_det_area")
+                        el = ui.switch("Probe Attenuation Correction", value=True)
+                        el.tooltip("Account for probe beam attenuation through the sample")
+                        di_inputs["probe_att"] = el
+                        di_valid.append("probe_att")
 
-                    with ui.row().classes("w-full gap-4"):
-                        el = ui.number(
-                            "Detector Diameter (cm)", value=0.9, step=0.1, min=0.01
-                        ).classes("flex-1")
-                        el.tooltip("Fluorescence detector diameter in cm")
-                        di_inputs["det_dia_cm"] = el
-                        di_valid.append("det_dia_cm")
+                        el = ui.switch("Continue from Checkpoint", value=False)
+                        el.tooltip("Resume from a previously saved checkpoint")
+                        di_inputs["cont_from_check_point"] = el
+                        di_valid.append("cont_from_check_point")
 
-                        el = ui.number(
-                            "Sample-Det Distance (cm)", value=1.6, step=0.1, min=0.01
-                        ).classes("flex-1")
-                        el.tooltip("Distance from sample to detector in cm")
-                        di_inputs["det_from_sample_cm"] = el
-                        di_valid.append("det_from_sample_cm")
-
-                        el = ui.number(
-                            "Det Pixel Spacing (cm)", value=0.4, step=0.05, min=0.01
-                        ).classes("flex-1")
-                        el.tooltip("Spacing between detector pixels in cm")
-                        di_inputs["det_ds_spacing_cm"] = el
-                        di_valid.append("det_ds_spacing_cm")
-
-                    el = ui.select(
-                        label="Detector Side",
-                        options=["positive", "negative"],
-                        value="positive",
-                    ).classes("w-full")
-                    el.tooltip("Which side of the sample the detector is on")
-                    di_inputs["det_on_which_side"] = el
-                    di_valid.append("det_on_which_side")
-
-                    ui.separator().classes("my-1")
-
-                    # Data Indexing ───────────────────────────────────────
-                    ui.label("Data Indexing").classes(
-                        "text-sm font-semibold text-gray-700"
-                    )
-                    with ui.row().classes("w-full gap-4"):
-                        el = ui.number(
-                            "XRT Ratio Dataset Index", value=3, step=1, min=0
-                        ).classes("flex-1")
-                        el.tooltip("HDF5 dataset index for XRT transmission ratio data")
-                        di_inputs["XRT_ratio_dataset_idx"] = el
-                        di_valid.append("XRT_ratio_dataset_idx")
-
-                        el = ui.number(
-                            "Upstream IC Index", value=1, step=1, min=0
-                        ).classes("flex-1")
-                        el.tooltip("HDF5 dataset index for upstream ion chamber counts")
-                        di_inputs["scaler_counts_us_ic_dataset_idx"] = el
-                        di_valid.append("scaler_counts_us_ic_dataset_idx")
-
-                        el = ui.number(
-                            "Downstream IC Index", value=2, step=1, min=0
-                        ).classes("flex-1")
-                        el.tooltip("HDF5 dataset index for downstream ion chamber counts")
-                        di_inputs["scaler_counts_ds_ic_dataset_idx"] = el
-                        di_valid.append("scaler_counts_ds_ic_dataset_idx")
-
-                    di_inputs["theta_ls_dataset"] = _ValueHolder("rot_angles")
-                    di_inputs["channel_names"]   = _ValueHolder("elements")
-                    di_inputs["element_symbols"] = elem_selector
-                    di_inputs["emission_energy"] = _EmissionProxy(elem_selector)
-
-                    ui.separator().classes("my-1")
-
-                    # Compute ─────────────────────────────────────────────
-                    ui.label("Compute Settings").classes(
-                        "text-sm font-semibold text-gray-700"
-                    )
-                    el = ui.number("GPU ID", value=3, step=1, min=-1).classes("w-full")
-                    el.tooltip("GPU device ID to use (-1 for CPU)")
-                    di_inputs["gpu_id"] = el
-                    di_valid.append("gpu_id")
+                        el = ui.switch("Use Saved Initial Guess", value=False)
+                        el.tooltip("Load a previously saved initial concentration grid")
+                        di_inputs["use_saved_initial_guess"] = el
+                        di_valid.append("use_saved_initial_guess")
 
         # ══════════════════════════════════════════════════════════════════════
         # SHARED RUN/STOP + PROGRESS (outside tabs, above status log)

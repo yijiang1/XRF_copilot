@@ -197,9 +197,12 @@ def create_recon_parameter_form(state: ReconState) -> tuple[dict, list]:
                     valid_params.append("save_every_n_epochs")
 
                     el = ui.number(
-                        "Minibatch Size", value=64, step=8, min=1
+                        "Minibatch Size", value=64, min=1
                     ).classes("flex-1")
-                    el.tooltip("Number of Z-rows (height slices) processed per batch")
+                    el.tooltip(
+                        "Number of voxel strips (from flattened H\u00d7W grid) per gradient update. "
+                        "Total strips = height \u00d7 width."
+                    )
                     input_elements["minibatch_size"] = el
                     valid_params.append("minibatch_size")
 

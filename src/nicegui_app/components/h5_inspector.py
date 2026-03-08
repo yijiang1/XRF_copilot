@@ -535,7 +535,7 @@ def create_h5_inspector(
 
     Returns:
         Async callable ``load_file()`` — triggers the same logic as clicking
-        "Load File".  Call it programmatically to restore state after page
+        "Load Data".  Call it programmatically to restore state after page
         navigation (file path must already be set on *fn_data_el*).
 
     Args:
@@ -588,7 +588,7 @@ def create_h5_inspector(
 
     # ── File load row ──────────────────────────────────────────────
     with ui.row().classes("w-full items-center gap-3"):
-        load_btn   = ui.button("Load File", icon="folder_open").props("dense outlined")
+        load_btn   = ui.button("Load Data", icon="folder_open").props("dense outlined")
         status_lbl = ui.label("No file loaded.").classes("text-gray-400 text-sm flex-1")
 
     # ── Channel / angle selectors (hidden until loaded) ────────────

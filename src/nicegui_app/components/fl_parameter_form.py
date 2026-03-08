@@ -372,15 +372,18 @@ class _ElementSelector:
 
 
 class _ICSelector:
-    """Dropdown for designating the ion-chamber channel.
+    """Dropdown that maps a channel name to its integer index.
 
     ``.value`` returns the absolute HDF5 channel index as an ``int``
     (compatible with ``_collect_fl_params`` which passes it directly to the backend).
+
+    Used for ion-chamber, XRT ratio, and upstream/downstream IC channel selection.
     """
 
-    def __init__(self):
+    def __init__(self, default_name: str = ""):
         self._all_names: list = []
         self._select: object = None   # ui.select widget, set by create_widget()
+        self._default_name = default_name
 
     @property
     def value(self) -> int:
@@ -399,7 +402,10 @@ class _ICSelector:
         self._all_names = list(names)
         if self._select is not None:
             self._select.options = names
-            self._select.value = names[-1] if names else None
+            if self._default_name and self._default_name in names:
+                self._select.value = self._default_name
+            elif names:
+                self._select.value = names[-1]
 
 
 class _IndicesProxy:
