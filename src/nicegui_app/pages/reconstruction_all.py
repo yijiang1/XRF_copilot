@@ -37,6 +37,7 @@ from ..components.status_log import create_status_log
 from ..components.session_bar import create_session_bar
 from ..components.result_viewer import create_result_viewer
 from ..components.detector_diagram import create_detector_diagram
+from ..components.bnl_mask_diagram import create_bnl_mask_diagram
 from ..utils.message_formatter import append_to_message_list
 
 # Colour legend for the periodic-table element selector
@@ -233,6 +234,7 @@ def create_reconstruction_all_page(api_key: str = ""):
                 _energy_ref      = [None]
                 _data_shape      = {"nx": 0, "ny": 0}    # filled on HDF5 load
                 _det_diagram_refs = []  # list of (update_fn, inputs_dict) for diagrams
+                _bnl_diagram_ref  = [None]  # [update_fn] for BNL mask diagram
 
                 def on_elements_loaded(names: list, shape=None) -> None:
                     ctr = _elem_ui["container"]
@@ -277,6 +279,13 @@ def create_reconstruction_all_page(api_key: str = ""):
                             det_ds_spacing_cm=inp["det_ds_spacing_cm"].value or 0.4,
                             det_on_which_side=inp["det_on_which_side"].value or "positive",
                             sample_size_cm=scm,
+                        )
+                    if _bnl_diagram_ref[0] is not None:
+                        _bnl_diagram_ref[0](
+                            fl_inputs["det_alfa"].value or 20.6,
+                            fl_inputs["det_theta"].value or 20.6,
+                            int(fl_inputs["mask_length_maximum"].value or 200),
+                            scm,
                         )
 
                 _h5_load_file = create_h5_inspector(
@@ -441,29 +450,60 @@ def create_reconstruction_all_page(api_key: str = ""):
                         "If mask3D_N.h5 already exists in the working directory, "
                         "it will be loaded directly (skipping generation)."
                     ).classes("text-xs text-gray-500 italic")
-                    with ui.row().classes("w-full gap-4"):
-                        el = ui.number(
-                            "Horizontal Angle (°)", value=20.6, step=0.1,
-                            min=0.1, format="%.1f"
-                        ).classes("flex-1")
-                        el.tooltip("Horizontal half-angle of the detector solid angle (degrees)")
-                        fl_inputs["det_alfa"] = el
-                        fl_valid.append("det_alfa")
+                    with ui.row().classes("w-full gap-4 items-start"):
+                        with ui.column().classes("flex-1 gap-2"):
+                            el = ui.number(
+                                "Horizontal Angle (°)", value=20.6, step=0.1,
+                                min=0.1, max=89.9, format="%.1f"
+                            ).classes("w-full")
+                            el.tooltip(
+                                "Full horizontal opening angle of the detection pyramid (degrees). "
+                                "Half-angle used internally."
+                            )
+                            fl_inputs["det_alfa"] = el
+                            fl_valid.append("det_alfa")
 
-                        el = ui.number(
-                            "Vertical Angle (°)", value=20.6, step=0.1,
-                            min=0.1, format="%.1f"
-                        ).classes("flex-1")
-                        el.tooltip("Vertical half-angle of the detector solid angle (degrees)")
-                        fl_inputs["det_theta"] = el
-                        fl_valid.append("det_theta")
+                            el = ui.number(
+                                "Vertical Angle (°)", value=20.6, step=0.1,
+                                min=0.1, max=89.9, format="%.1f"
+                            ).classes("w-full")
+                            el.tooltip(
+                                "Full vertical opening angle of the detection pyramid (degrees). "
+                                "Half-angle used internally."
+                            )
+                            fl_inputs["det_theta"] = el
+                            fl_valid.append("det_theta")
 
-                        el = ui.number(
-                            "Mask Length (px)", value=200, step=10, min=10
-                        ).classes("flex-1")
-                        el.tooltip("Maximum radial length for the 3D detector mask")
-                        fl_inputs["mask_length_maximum"] = el
-                        fl_valid.append("mask_length_maximum")
+                            el = ui.number(
+                                "Mask Length (px)", value=200, step=10, min=10
+                            ).classes("w-full")
+                            el.tooltip(
+                                "Maximum radial reach of the 3D detector mask in pixels. "
+                                "Larger = captures more distant self-absorption paths. "
+                                "Diagram length is schematic only."
+                            )
+                            fl_inputs["mask_length_maximum"] = el
+                            fl_valid.append("mask_length_maximum")
+
+                        with ui.column().classes("gap-0"):
+                            bnl_mask_update = create_bnl_mask_diagram()
+                            _bnl_diagram_ref[0] = bnl_mask_update
+
+                    # Wire live diagram updates for BNL mask
+                    def _make_bnl_updater():
+                        def _update_bnl_diagram(_e=None):
+                            bnl_mask_update(
+                                fl_inputs["det_alfa"].value or 20.6,
+                                fl_inputs["det_theta"].value or 20.6,
+                                int(fl_inputs["mask_length_maximum"].value or 200),
+                                _compute_sample_size_cm(),
+                            )
+                        return _update_bnl_diagram
+
+                    _bnl_updater = _make_bnl_updater()
+                    fl_inputs["det_alfa"].on_value_change(_bnl_updater)
+                    fl_inputs["det_theta"].on_value_change(_bnl_updater)
+                    fl_inputs["mask_length_maximum"].on_value_change(_bnl_updater)
 
                     ui.separator().classes("my-1")
                     ui.label("Initial Reconstruction (ASTRA)").classes(
@@ -969,6 +1009,13 @@ def create_reconstruction_all_page(api_key: str = ""):
                         el.tooltip("Load a previously saved initial concentration grid")
                         di_inputs["use_saved_initial_guess"] = el
                         di_valid.append("use_saved_initial_guess")
+
+        # ── Refresh diagrams on tab switch and pixel-size change ──────────────
+        # Plotly may skip rendering hidden tab panels on page load, so
+        # _fullLayout can be null when Load Data fires.  Re-running the update
+        # when the tab is first shown ensures the sample-size label appears.
+        tabs.on_value_change(lambda _: _refresh_all_diagrams())
+        pixel_size_nm_el.on_value_change(lambda _: _refresh_all_diagrams())
 
         # ══════════════════════════════════════════════════════════════════════
         # SHARED RUN/STOP + PROGRESS (outside tabs, above status log)
