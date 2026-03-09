@@ -288,17 +288,6 @@ def create_di_parameter_form(state: ReconState) -> tuple[dict, list]:
         # --- Detector Geometry ---
         with ui.expansion("Detector Geometry", icon="straighten").classes("w-full"):
             with ui.column().classes("w-full gap-2 p-2"):
-                with ui.row().classes("w-full gap-8"):
-                    el = ui.switch("Manual Detector Coordinates", value=False)
-                    el.tooltip("Use manually specified detector coordinates instead of auto-computed")
-                    input_elements["manual_det_coord"] = el
-                    valid_params.append("manual_det_coord")
-
-                    el = ui.switch("Manual Detector Area", value=False)
-                    el.tooltip("Use manually specified detector area instead of auto-computed from diameter")
-                    input_elements["manual_det_area"] = el
-                    valid_params.append("manual_det_area")
-
                 with ui.row().classes("w-full gap-4"):
                     el = ui.number(
                         "Detector Diameter (cm)", value=0.9, step=0.1, min=0.01
@@ -323,12 +312,17 @@ def create_di_parameter_form(state: ReconState) -> tuple[dict, list]:
 
                 el = ui.select(
                     label="Detector Side",
-                    options=["positive", "negative"],
+                    options={"positive": "Right", "negative": "Left"},
                     value="positive",
                 ).classes("w-full")
-                el.tooltip("Which side of the sample the detector is on (positive = right/top)")
+                el.tooltip("Which side of the sample the detector is on")
                 input_elements["det_on_which_side"] = el
                 valid_params.append("det_on_which_side")
+
+                el = ui.switch("Manual Detector Area", value=False)
+                el.tooltip("Skip solid-angle correction (data already calibrated)")
+                input_elements["manual_det_area"] = el
+                valid_params.append("manual_det_area")
 
         # --- Data Indexing ---
         with ui.expansion("Data Indexing", icon="table_rows").classes("w-full"):

@@ -254,7 +254,7 @@ def di_reconstruction_worker_process(params: dict, status_queue, stop_event):
             probe_energy=np.array([params["probe_energy"]]),
             probe_intensity=params["probe_intensity"],
             probe_att=params["probe_att"],
-            manual_det_coord=params["manual_det_coord"],
+            manual_det_coord=False,
             set_det_coord_cm=None,
             det_on_which_side=params["det_on_which_side"],
             manual_det_area=params["manual_det_area"],

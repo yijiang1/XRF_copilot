@@ -79,11 +79,11 @@ class XRFReconstructionParams(BaseModel):
     # ── Initialization ──
     ini_kind: str = "const"
     init_const: float = 0.0
+    ini_rand_amp: float = 0.1
     cont_from_check_point: bool = False
     use_saved_initial_guess: bool = False
 
     # ── Detector geometry (for simulated data) ──
-    manual_det_coord: bool = False
     det_dia_cm: float = 0.9
     det_from_sample_cm: float = 1.6
     det_ds_spacing_cm: float = 0.4
@@ -143,7 +143,6 @@ class DiReconParams(BaseModel):
     use_saved_initial_guess: bool = False
 
     # ── Detector geometry ──
-    manual_det_coord: bool = False
     det_dia_cm: float = 0.9
     det_from_sample_cm: float = 1.6
     det_ds_spacing_cm: float = 0.4

@@ -84,7 +84,7 @@ _FL_FORM_KEYS = frozenset({
 _RECON_FORM_KEYS = frozenset({
     "probe_intensity", "probe_att", "n_epochs", "save_every_n_epochs",
     "minibatch_size", "lr", "b1", "b2", "selfAb", "cont_from_check_point",
-    "use_saved_initial_guess", "ini_kind", "init_const", "manual_det_coord",
+    "use_saved_initial_guess", "ini_kind", "init_const", "ini_rand_amp",
     "manual_det_area", "det_dia_cm", "det_from_sample_cm", "det_ds_spacing_cm",
     "det_on_which_side",
 })
@@ -92,7 +92,7 @@ _DI_FORM_KEYS = frozenset({
     "probe_intensity", "probe_att", "n_outer_epochs", "lbfgs_n_iter",
     "lbfgs_history", "loss_type", "beta1_xrt", "tikhonov_lambda",
     "save_every_n_epochs", "minibatch_size", "selfAb", "cont_from_check_point",
-    "use_saved_initial_guess", "ini_kind", "init_const", "manual_det_coord",
+    "use_saved_initial_guess", "ini_kind", "init_const",
     "manual_det_area", "det_dia_cm", "det_from_sample_cm", "det_ds_spacing_cm",
     "det_on_which_side",
 })
@@ -574,17 +574,6 @@ def create_reconstruction_all_page(api_key: str = ""):
                     )
                     with ui.row().classes("w-full gap-4 items-start"):
                         with ui.column().classes("flex-1 gap-2"):
-                            with ui.row().classes("w-full gap-8"):
-                                el = ui.switch("Manual Detector Coordinates", value=False)
-                                el.tooltip("Use manually specified detector coordinates")
-                                recon_inputs["manual_det_coord"] = el
-                                recon_valid.append("manual_det_coord")
-
-                                el = ui.switch("Manual Detector Area", value=False)
-                                el.tooltip("Use manually specified detector area")
-                                recon_inputs["manual_det_area"] = el
-                                recon_valid.append("manual_det_area")
-
                             with ui.row().classes("w-full gap-4"):
                                 el = ui.number(
                                     "Detector Diameter (cm)", value=0.9, step=0.1, min=0.01
@@ -609,12 +598,17 @@ def create_reconstruction_all_page(api_key: str = ""):
 
                             el = ui.select(
                                 label="Detector Side",
-                                options=["positive", "negative"],
+                                options={"positive": "Right", "negative": "Left"},
                                 value="positive",
                             ).classes("w-full")
                             el.tooltip("Which side of the sample the detector is on")
                             recon_inputs["det_on_which_side"] = el
                             recon_valid.append("det_on_which_side")
+
+                            el = ui.switch("Manual Detector Area", value=False)
+                            el.tooltip("Skip solid-angle correction (data already calibrated)")
+                            recon_inputs["manual_det_area"] = el
+                            recon_valid.append("manual_det_area")
 
                         # 3D interactive diagram
                         with ui.column().classes("gap-0"):
@@ -679,28 +673,38 @@ def create_reconstruction_all_page(api_key: str = ""):
                         recon_valid.append("lr")
 
                         el = ui.number(
-                            "Beta 1", value=0.0, step=0.01,
-                            min=0.0, max=1.0, format="%.3f"
+                            "XRT Loss Weight (b\u2081)", value=0.0, step=100,
+                            min=0.0, format="%.2e"
                         ).classes("flex-1")
-                        el.tooltip("Adam beta1 (first moment decay)")
+                        el.tooltip(
+                            "Weight of XRT transmission loss in combined objective: "
+                            "loss = XRF + b\u2081\u00b7XRT. Use 0 to disable XRT loss; "
+                            "typical experimental value: 1e4"
+                        )
                         recon_inputs["b1"] = el
                         recon_valid.append("b1")
 
                         el = ui.number(
-                            "Beta 2", value=1.0, step=0.01,
-                            min=0.0, max=1.0, format="%.3f"
+                            "XRT Data Scale (b\u2082)", value=1.0, step=0.1,
+                            min=0.0, format="%.2e"
                         ).classes("flex-1")
-                        el.tooltip("Adam beta2 (second moment decay)")
+                        el.tooltip(
+                            "Scale factor applied to measured XRT transmission data "
+                            "before computing loss"
+                        )
                         recon_inputs["b2"] = el
                         recon_valid.append("b2")
 
                     with ui.row().classes("w-full gap-4"):
                         el = ui.select(
                             label="Initialization Kind",
-                            options=["const", "rand"],
+                            options=["const", "rand", "randn"],
                             value="const",
                         ).classes("flex-1")
-                        el.tooltip("How to initialize the concentration grid")
+                        el.tooltip(
+                            "How to initialize the concentration grid: "
+                            "const = uniform value, rand = uniform random, randn = Gaussian random"
+                        )
                         recon_inputs["ini_kind"] = el
                         recon_valid.append("ini_kind")
 
@@ -708,9 +712,17 @@ def create_reconstruction_all_page(api_key: str = ""):
                             "Initial Constant", value=0.0,
                             step=0.01, format="%.4f"
                         ).classes("flex-1")
-                        el.tooltip("Initial concentration value when ini_kind='const'")
+                        el.tooltip("Base concentration value for initialization")
                         recon_inputs["init_const"] = el
                         recon_valid.append("init_const")
+
+                        el = ui.number(
+                            "Random Amplitude", value=0.1,
+                            step=0.01, min=0.0, format="%.4f"
+                        ).classes("flex-1")
+                        el.tooltip("Amplitude of random noise added to initial constant (used when ini_kind='rand' or 'randn')")
+                        recon_inputs["ini_rand_amp"] = el
+                        recon_valid.append("ini_rand_amp")
 
                     with ui.row().classes("w-full gap-8"):
                         el = ui.switch("Self-Absorption Correction", value=True)
@@ -784,17 +796,6 @@ def create_reconstruction_all_page(api_key: str = ""):
                     )
                     with ui.row().classes("w-full gap-4 items-start"):
                         with ui.column().classes("flex-1 gap-2"):
-                            with ui.row().classes("w-full gap-8"):
-                                el = ui.switch("Manual Detector Coordinates", value=False)
-                                el.tooltip("Use manually specified detector coordinates")
-                                di_inputs["manual_det_coord"] = el
-                                di_valid.append("manual_det_coord")
-
-                                el = ui.switch("Manual Detector Area", value=False)
-                                el.tooltip("Use manually specified detector area")
-                                di_inputs["manual_det_area"] = el
-                                di_valid.append("manual_det_area")
-
                             with ui.row().classes("w-full gap-4"):
                                 el = ui.number(
                                     "Detector Diameter (cm)", value=0.9, step=0.1, min=0.01
@@ -819,12 +820,17 @@ def create_reconstruction_all_page(api_key: str = ""):
 
                             el = ui.select(
                                 label="Detector Side",
-                                options=["positive", "negative"],
+                                options={"positive": "Right", "negative": "Left"},
                                 value="positive",
                             ).classes("w-full")
                             el.tooltip("Which side of the sample the detector is on")
                             di_inputs["det_on_which_side"] = el
                             di_valid.append("det_on_which_side")
+
+                            el = ui.switch("Manual Detector Area", value=False)
+                            el.tooltip("Skip solid-angle correction (data already calibrated)")
+                            di_inputs["manual_det_area"] = el
+                            di_valid.append("manual_det_area")
 
                         # 3D interactive diagram
                         with ui.column().classes("gap-0"):

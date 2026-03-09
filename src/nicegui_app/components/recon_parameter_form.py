@@ -216,18 +216,25 @@ def create_recon_parameter_form(state: ReconState) -> tuple[dict, list]:
                     valid_params.append("lr")
 
                     el = ui.number(
-                        "Beta 1 (b1)", value=0.0, step=0.01, min=0.0, max=1.0,
-                        format="%.3f"
+                        "XRT Loss Weight (b\u2081)", value=0.0, step=100,
+                        min=0.0, format="%.2e"
                     ).classes("flex-1")
-                    el.tooltip("Adam optimizer beta1 (first moment decay)")
+                    el.tooltip(
+                        "Weight of XRT transmission loss in combined objective: "
+                        "loss = XRF + b\u2081\u00b7XRT. Use 0 to disable XRT loss; "
+                        "typical experimental value: 1e4"
+                    )
                     input_elements["b1"] = el
                     valid_params.append("b1")
 
                     el = ui.number(
-                        "Beta 2 (b2)", value=1.0, step=0.01, min=0.0, max=1.0,
-                        format="%.3f"
+                        "XRT Data Scale (b\u2082)", value=1.0, step=0.1,
+                        min=0.0, format="%.2e"
                     ).classes("flex-1")
-                    el.tooltip("Adam optimizer beta2 (second moment decay)")
+                    el.tooltip(
+                        "Scale factor applied to measured XRT transmission data "
+                        "before computing loss"
+                    )
                     input_elements["b2"] = el
                     valid_params.append("b2")
 
@@ -250,34 +257,33 @@ def create_recon_parameter_form(state: ReconState) -> tuple[dict, list]:
                 with ui.row().classes("w-full gap-4"):
                     el = ui.select(
                         label="Initialization Kind",
-                        options=["const", "rand"],
+                        options=["const", "rand", "randn"],
                         value="const",
                     ).classes("flex-1")
-                    el.tooltip("How to initialize the concentration grid")
+                    el.tooltip(
+                        "How to initialize the concentration grid: "
+                        "const = uniform value, rand = uniform random, randn = Gaussian random"
+                    )
                     input_elements["ini_kind"] = el
                     valid_params.append("ini_kind")
 
                     el = ui.number(
                         "Initial Constant Value", value=0.0, step=0.01, format="%.4f"
                     ).classes("flex-1")
-                    el.tooltip("Initial concentration value when ini_kind='const'")
+                    el.tooltip("Base concentration value for initialization")
                     input_elements["init_const"] = el
                     valid_params.append("init_const")
+
+                    el = ui.number(
+                        "Random Amplitude", value=0.1, step=0.01, min=0.0, format="%.4f"
+                    ).classes("flex-1")
+                    el.tooltip("Amplitude of random noise added to initial constant (used when ini_kind='rand' or 'randn')")
+                    input_elements["ini_rand_amp"] = el
+                    valid_params.append("ini_rand_amp")
 
         # --- Detector Geometry ---
         with ui.expansion("Detector Geometry", icon="straighten").classes("w-full"):
             with ui.column().classes("w-full gap-2 p-2"):
-                with ui.row().classes("w-full gap-8"):
-                    el = ui.switch("Manual Detector Coordinates", value=False)
-                    el.tooltip("Use manually specified detector coordinates instead of auto-computed")
-                    input_elements["manual_det_coord"] = el
-                    valid_params.append("manual_det_coord")
-
-                    el = ui.switch("Manual Detector Area", value=False)
-                    el.tooltip("Use manually specified detector area instead of auto-computed from diameter")
-                    input_elements["manual_det_area"] = el
-                    valid_params.append("manual_det_area")
-
                 with ui.row().classes("w-full gap-4"):
                     el = ui.number(
                         "Detector Diameter (cm)", value=0.9, step=0.1, min=0.01
@@ -302,12 +308,17 @@ def create_recon_parameter_form(state: ReconState) -> tuple[dict, list]:
 
                 el = ui.select(
                     label="Detector Side",
-                    options=["positive", "negative"],
+                    options={"positive": "Right", "negative": "Left"},
                     value="positive",
                 ).classes("w-full")
-                el.tooltip("Which side of the sample the detector is on (positive = right/top)")
+                el.tooltip("Which side of the sample the detector is on")
                 input_elements["det_on_which_side"] = el
                 valid_params.append("det_on_which_side")
+
+                el = ui.switch("Manual Detector Area", value=False)
+                el.tooltip("Skip solid-angle correction (data already calibrated)")
+                input_elements["manual_det_area"] = el
+                valid_params.append("manual_det_area")
 
         # --- Data Indexing ---
         with ui.expansion("Data Indexing", icon="table_rows").classes("w-full"):
