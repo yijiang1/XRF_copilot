@@ -513,7 +513,7 @@ def _read_slice(filepath: str, ch_idx: int, ang_idx: int, data_key: str = "data"
     if p98 <= p2:
         p98 = p2 + 1.0
     buf = io.BytesIO()
-    plt.imsave(buf, arr, cmap="viridis", vmin=p2, vmax=p98, format="png")
+    plt.imsave(buf, arr, cmap="gray", vmin=p2, vmax=p98, format="png")
     data_url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
     return data_url, vmin, vmax, vmean, ny, nx
 

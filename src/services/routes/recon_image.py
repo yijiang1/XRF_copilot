@@ -2,7 +2,7 @@
 
 Endpoints:
     GET /get_session_recon_info/  — metadata from latest checkpoint
-    GET /get_recon_slice/         — one 2D slice as Viridis PNG
+    GET /get_recon_slice/         — one 2D slice as grayscale PNG
 """
 
 import os
@@ -34,7 +34,7 @@ def _read_recon_slice(filepath: str, elem_idx: int, slice_idx: int) -> dict:
         p98 = p2 + 1.0
 
     buf = io.BytesIO()
-    plt.imsave(buf, arr, cmap="viridis", vmin=p2, vmax=p98, format="png")
+    plt.imsave(buf, arr, cmap="gray", vmin=p2, vmax=p98, format="png")
     data_url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
     return {
