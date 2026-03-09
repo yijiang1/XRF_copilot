@@ -1,10 +1,21 @@
 """LLM-powered chat assistant for XRF parameter configuration."""
 
 import re
+import httpx
 from nicegui import ui
 from ..state import AppState
-from ..config import ANL_USERNAME
+from ..config import ANL_USERNAME, ARGO_BASE_URL
 from ..services.llm_service import ChatAssistantService
+
+
+def _is_argo_reachable() -> bool:
+    """Quick check whether the Argo Gateway endpoint is reachable."""
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            resp = client.get(ARGO_BASE_URL)
+            return resp.status_code < 500
+    except Exception:
+        return False
 
 
 def create_chat_assistant(state: AppState, elements_ref: dict) -> None:
@@ -199,8 +210,14 @@ def create_chat_assistant(state: AppState, elements_ref: dict) -> None:
     # --- Initial state ---
     if not ANL_USERNAME:
         _add_bot_message(
-            "Argo Gateway not configured. "
-            "Set ANL_USERNAME in your .env file to enable the chat assistant."
+            "Chat assistant disabled — ANL_USERNAME not configured."
+        )
+        text_input.disable()
+        send_btn.disable()
+    elif not _is_argo_reachable():
+        _add_bot_message(
+            "Chat assistant disabled — Argo Gateway is not reachable. "
+            "This feature requires Argonne network access."
         )
         text_input.disable()
         send_btn.disable()

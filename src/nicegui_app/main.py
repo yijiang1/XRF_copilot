@@ -4,7 +4,7 @@ import argparse
 import re
 import httpx
 from nicegui import ui
-from .config import HOST, PORT, BACKEND_API_KEY
+from .config import HOST, PORT, BACKEND_API_KEY, ENABLE_APS_STATUS
 
 from .pages.simulation import create_simulation_page
 from .pages.reconstruction_all import create_reconstruction_all_page
@@ -146,40 +146,41 @@ def _create_nav_header(active_page: str, key: str):
 
         ui.space()
 
-        # ── APS beam status badge ──
-        beam_badge = ui.label("APS: —").classes(
-            "text-sm font-semibold px-3 py-1 rounded-full self-center "
-            "bg-slate-700 text-slate-300"
-        )
+        # ── APS beam status badge (only when ENABLE_APS_STATUS=true) ──
+        if ENABLE_APS_STATUS:
+            beam_badge = ui.label("APS: —").classes(
+                "text-sm font-semibold px-3 py-1 rounded-full self-center "
+                "bg-slate-700 text-slate-300"
+            )
 
-        async def _poll_beam_status():
-            try:
-                async with httpx.AsyncClient(timeout=8.0) as client:
-                    resp = await client.get(_APS_SR_STATUS_URL)
-                    html = resp.text
-                m = re.search(r"Operations Status.*?<b>\s*([^<]+?)\s*</b>", html, re.DOTALL)
-                if m:
-                    op_status = m.group(1).strip()
-                    has_beam = bool(re.search(r"Delivered\s+Beam", op_status, re.IGNORECASE))
-                    beam_badge.set_text(f"APS: {op_status}")
-                    beam_badge.classes(
-                        remove="bg-slate-700 text-slate-300 bg-red-900 text-red-300 bg-green-900 text-green-300",
-                        add="bg-green-900 text-green-300" if has_beam else "bg-red-900 text-red-300",
-                    )
-                else:
+            async def _poll_beam_status():
+                try:
+                    async with httpx.AsyncClient(timeout=8.0) as client:
+                        resp = await client.get(_APS_SR_STATUS_URL)
+                        html = resp.text
+                    m = re.search(r"Operations Status.*?<b>\s*([^<]+?)\s*</b>", html, re.DOTALL)
+                    if m:
+                        op_status = m.group(1).strip()
+                        has_beam = bool(re.search(r"Delivered\s+Beam", op_status, re.IGNORECASE))
+                        beam_badge.set_text(f"APS: {op_status}")
+                        beam_badge.classes(
+                            remove="bg-slate-700 text-slate-300 bg-red-900 text-red-300 bg-green-900 text-green-300",
+                            add="bg-green-900 text-green-300" if has_beam else "bg-red-900 text-red-300",
+                        )
+                    else:
+                        beam_badge.set_text("APS: —")
+                        beam_badge.classes(
+                            remove="bg-green-900 text-green-300 bg-red-900 text-red-300",
+                            add="bg-slate-700 text-slate-300",
+                        )
+                except Exception:
                     beam_badge.set_text("APS: —")
                     beam_badge.classes(
                         remove="bg-green-900 text-green-300 bg-red-900 text-red-300",
                         add="bg-slate-700 text-slate-300",
                     )
-            except Exception:
-                beam_badge.set_text("APS: —")
-                beam_badge.classes(
-                    remove="bg-green-900 text-green-300 bg-red-900 text-red-300",
-                    add="bg-slate-700 text-slate-300",
-                )
 
-        ui.timer(60.0, _poll_beam_status, immediate=True)
+            ui.timer(60.0, _poll_beam_status, immediate=True)
 
 
 # ── Routes ──

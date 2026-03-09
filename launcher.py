@@ -667,6 +667,7 @@ def launcher_page():
             env["HOST"]            = "0.0.0.0"
             env["PORT"]            = str(fp)
             env["ANL_USERNAME"]    = u
+            env["ENABLE_APS_STATUS"] = "true"
 
             frontend_proc = subprocess.Popen(
                 [sys.executable, "-m", "src.nicegui_app", "--api-key", api_key],

@@ -15,6 +15,9 @@ DEBUG = os.getenv("DEBUG", "True").lower() in ("true", "1", "t")
 # Backend API key (must match the key set on the backend)
 BACKEND_API_KEY = os.getenv("BACKEND_API_KEY", "")
 
+# APS beam status polling (set to "true" to enable; disabled by default for external users)
+ENABLE_APS_STATUS = os.getenv("ENABLE_APS_STATUS", "false").lower() in ("true", "1", "t")
+
 # LLM Chat Assistant - Argo Gateway (Argonne's internal LLM API)
 ANL_USERNAME = os.getenv("ANL_USERNAME", "")
 ARGO_BASE_URL = os.getenv("ARGO_BASE_URL", "https://apps.inside.anl.gov/argoapi/v1")
