@@ -1096,18 +1096,215 @@ def create_method_explanation_page():
                 )
 
         # ════════════════════════════════════════════════════════════════════
-        # Section 4 — Variable Reference
+        # Section 4 — Detector Geometry Comparison
         # ════════════════════════════════════════════════════════════════════
-        _section_header("4", "Variable Reference — Three-Way Notation Comparison", "table_chart", "#475569")
+        _section_header("4", "Detector Geometry — How Each Method Models the Detector", "radar", "#b45309")
+
+        with ui.card().classes("w-full"):
+            with ui.column().classes("p-3 gap-4"):
+                ui.html(
+                    '<p style="color:#334155; line-height:1.75; font-size:0.93rem;">'
+                    'All three methods need to model <em>which fluorescence photons reach the detector</em> '
+                    'from each source voxel, accounting for the finite detector size and position. '
+                    'However, they use fundamentally different geometric representations:'
+                    '</p>'
+                )
+
+                # ── Three-column summary cards ─────────────────────────────
+                with ui.row().classes("w-full gap-4 flex-wrap"):
+
+                    # BNL card
+                    ui.html(
+                        '<div style="flex:1; min-width:260px; border:2px solid #7c3aed; border-radius:10px; padding:14px;">'
+                        '<div style="font-size:0.9rem; font-weight:700; color:#5b21b6; margin-bottom:8px;">'
+                        '&#x25A0; BNL — 3D Pyramid Acceptance Cone</div>'
+                        '<div style="font-size:0.82rem; color:#374151; line-height:1.65;">'
+                        '<p style="margin:0 0 6px 0;">'
+                        'The detector acceptance is modelled as a <strong>rectangular pyramid</strong> '
+                        'centred on each source voxel. Any voxel that falls inside the cone contributes '
+                        'an attenuation path to the H-matrix; voxels outside are masked to zero.'
+                        '</p>'
+                        '<p style="margin:0 0 4px 0; font-weight:600; color:#5b21b6;">Parameters:</p>'
+                        '<ul style="margin:0 0 6px 0; padding-left:16px;">'
+                        '<li><code>det_alfa</code> — full horizontal opening angle (°); '
+                        'half-angle <code>alfa/2</code> used internally</li>'
+                        '<li><code>det_theta</code> — full vertical opening angle (°)</li>'
+                        '<li><code>mask_length_maximum</code> — radial reach of the mask in <em>pixels</em> '
+                        '(not cm; larger = captures more distant paths)</li>'
+                        '</ul>'
+                        '<p style="margin:0 0 6px 0; font-weight:600; color:#5b21b6;">Key properties:</p>'
+                        '<ul style="margin:0; padding-left:16px;">'
+                        '<li>Works entirely in <strong>pixel space</strong> — no physical distance parameter</li>'
+                        '<li>The opening angles fully define the solid angle; the detector size and '
+                        'distance to sample are <em>not</em> needed</li>'
+                        '<li>3D mask precomputed once and cached as '
+                        '<code>mask3D_{N}.h5</code> (~416 MB for mask_length=200); '
+                        'reloaded automatically on subsequent runs</li>'
+                        '<li>No XRT transmission term — correction is XRF-only</li>'
+                        '</ul>'
+                        '</div></div>'
+                    )
+
+                    # Panpan card
+                    ui.html(
+                        '<div style="flex:1; min-width:260px; border:2px solid #1d4ed8; border-radius:10px; padding:14px;">'
+                        '<div style="font-size:0.9rem; font-weight:700; color:#1e40af; margin-bottom:8px;">'
+                        '&#x25A0; Panpan — Flat Circular Disk (P-matrix)</div>'
+                        '<div style="font-size:0.82rem; color:#374151; line-height:1.65;">'
+                        '<p style="margin:0 0 6px 0;">'
+                        'The detector is a <strong>physical flat circular disk</strong> placed at a known '
+                        'distance from the sample edge, sampled as a grid of discrete <em>detectorlets</em>. '
+                        'For each source voxel, rays are traced to every detectorlet and path lengths '
+                        'through intersecting voxels are stored in the <strong>P-matrix</strong>.'
+                        '</p>'
+                        '<p style="margin:0 0 4px 0; font-weight:600; color:#1e40af;">Parameters:</p>'
+                        '<ul style="margin:0 0 6px 0; padding-left:16px;">'
+                        '<li><code>det_dia_cm</code> — physical detector diameter (cm)</li>'
+                        '<li><code>det_from_sample_cm</code> — sample-edge to detector-face distance (cm)</li>'
+                        '<li><code>det_ds_spacing_cm</code> — grid spacing between detectorlets (cm); '
+                        'controls how finely the disk is sampled</li>'
+                        '<li><code>det_on_which_side</code> — Right (+x) or Left (−x) of the rotation axis</li>'
+                        '</ul>'
+                        '<p style="margin:0 0 6px 0; font-weight:600; color:#1e40af;">Key properties:</p>'
+                        '<ul style="margin:0; padding-left:16px;">'
+                        '<li>All parameters are in <strong>physical cm</strong> — directly tied to the '
+                        'experimental setup</li>'
+                        '<li>Solid angle: &pi;(d/2)&sup2; / (4&pi; dist&sup2;) — small-angle flat-disk '
+                        'approximation</li>'
+                        '<li>P-matrix precomputed and cached by geometry: '
+                        '<code>P_array/Intersecting_Length_…h5</code> (~2 GB for 64&times;64); '
+                        'computation can take tens of minutes</li>'
+                        '<li>Includes joint XRT transmission loss (b&#x2081; weight)</li>'
+                        '</ul>'
+                        '</div></div>'
+                    )
+
+                    # Di / Wendy card
+                    ui.html(
+                        '<div style="flex:1; min-width:260px; border:2px solid #059669; border-radius:10px; padding:14px;">'
+                        '<div style="font-size:0.9rem; font-weight:700; color:#065f46; margin-bottom:8px;">'
+                        '&#x25A0; Wendy (Di et al.) — Flat Disk + Full Spectrum</div>'
+                        '<div style="font-size:0.82rem; color:#374151; line-height:1.65;">'
+                        '<p style="margin:0 0 6px 0;">'
+                        'Uses the <strong>same flat-disk P-matrix</strong> as Panpan — identical detector '
+                        'geometry parameters and precomputed files. The original MATLAB implementation '
+                        '(Di et al. 2017) averaged over n<sub>d</sub>=5 Gaussian-quadrature detector '
+                        'sample points; the Python port (Wendy) reuses the Panpan P-matrix for efficiency.'
+                        '</p>'
+                        '<p style="margin:0 0 4px 0; font-weight:600; color:#065f46;">Same parameters as Panpan:</p>'
+                        '<ul style="margin:0 0 6px 0; padding-left:16px;">'
+                        '<li><code>det_dia_cm</code>, <code>det_from_sample_cm</code>, '
+                        '<code>det_ds_spacing_cm</code>, <code>det_on_which_side</code></li>'
+                        '</ul>'
+                        '<p style="margin:0 0 6px 0; font-weight:600; color:#065f46;">Key properties:</p>'
+                        '<ul style="margin:0; padding-left:16px;">'
+                        '<li>P-matrix shared with Panpan if geometry parameters are identical — '
+                        'no recomputation needed</li>'
+                        '<li>Self-absorption B averaged over detector footprint '
+                        '(Eq. 5.9): B<sub>l,v</sub> = (1/n<sub>d</sub>) &Sigma;<sub>d</sub> '
+                        'exp(&minus;&Sigma;<sub>v&prime;</sub> &mu;<sub>l</sub> &times; P<sub>v,v&prime;,d</sub>)</li>'
+                        '<li>Adds full XRF energy spectrum model M<sub>e</sub> (Gaussian detector blur) '
+                        'not present in Panpan</li>'
+                        '<li>Includes joint XRT loss term (b&#x2081; weight)</li>'
+                        '</ul>'
+                        '</div></div>'
+                    )
+
+                # ── Summary comparison table ───────────────────────────────
+                ui.html(
+                    '<div style="font-size:0.87rem; font-weight:600; color:#334155; margin-top:4px; margin-bottom:6px;">'
+                    'Side-by-side parameter comparison:'
+                    '</div>'
+                    '<table style="width:100%; border-collapse:collapse; font-size:0.82rem;">'
+                    '<thead><tr style="background:#f1f5f9;">'
+                    '<th style="text-align:left; padding:6px 10px; color:#475569; width:22%;">Aspect</th>'
+                    '<th style="text-align:left; padding:6px 10px; color:#5b21b6; width:26%;">BNL</th>'
+                    '<th style="text-align:left; padding:6px 10px; color:#1e40af; width:26%;">Panpan</th>'
+                    '<th style="text-align:left; padding:6px 10px; color:#065f46; width:26%;">Wendy (Di)</th>'
+                    '</tr></thead>'
+                    '<tbody>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:6px 10px; font-weight:600; color:#374151;">Geometry model</td>'
+                    '<td style="padding:6px 10px; color:#374151;">3D rectangular pyramid cone</td>'
+                    '<td style="padding:6px 10px; color:#374151;">Flat circular disk, detectorlet grid</td>'
+                    '<td style="padding:6px 10px; color:#374151;">Same flat disk as Panpan</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb; background:#fafafa;">'
+                    '<td style="padding:6px 10px; font-weight:600; color:#374151;">Parameter space</td>'
+                    '<td style="padding:6px 10px; color:#374151;">Pixel space (angles + px)</td>'
+                    '<td style="padding:6px 10px; color:#374151;">Physical cm</td>'
+                    '<td style="padding:6px 10px; color:#374151;">Physical cm</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:6px 10px; font-weight:600; color:#374151;">Parameters</td>'
+                    '<td style="padding:6px 10px; font-family:monospace; font-size:0.78rem; color:#374151;">'
+                    'det_alfa (°)<br>det_theta (°)<br>mask_length (px)</td>'
+                    '<td style="padding:6px 10px; font-family:monospace; font-size:0.78rem; color:#374151;">'
+                    'det_dia_cm<br>det_from_sample_cm<br>det_ds_spacing_cm<br>det_on_which_side</td>'
+                    '<td style="padding:6px 10px; font-family:monospace; font-size:0.78rem; color:#374151;">'
+                    'det_dia_cm<br>det_from_sample_cm<br>det_ds_spacing_cm<br>det_on_which_side</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb; background:#fafafa;">'
+                    '<td style="padding:6px 10px; font-weight:600; color:#374151;">Solid angle</td>'
+                    '<td style="padding:6px 10px; color:#374151;">'
+                    'tan(alfa/2) &times; tan(theta/2) (pyramid subtended angle)</td>'
+                    '<td style="padding:6px 10px; color:#374151;">'
+                    '&pi;(d/2)&sup2; / (4&pi; dist&sup2;) (flat disk)</td>'
+                    '<td style="padding:6px 10px; color:#374151;">Same as Panpan</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:6px 10px; font-weight:600; color:#374151;">Precomputed file</td>'
+                    '<td style="padding:6px 10px; font-family:monospace; font-size:0.78rem; color:#374151;">'
+                    'mask3D_{N}.h5<br>~416 MB</td>'
+                    '<td style="padding:6px 10px; font-family:monospace; font-size:0.78rem; color:#374151;">'
+                    'Intersecting_Length_…h5<br>~2 GB for 64&times;64</td>'
+                    '<td style="padding:6px 10px; font-family:monospace; font-size:0.78rem; color:#374151;">'
+                    'Same file as Panpan<br>(shared if geometry matches)</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb; background:#fafafa;">'
+                    '<td style="padding:6px 10px; font-weight:600; color:#374151;">XRT term</td>'
+                    '<td style="padding:6px 10px; color:#374151;">None — XRF-only</td>'
+                    '<td style="padding:6px 10px; color:#374151;">Yes (b&#x2081; weight)</td>'
+                    '<td style="padding:6px 10px; color:#374151;">Yes (b&#x2081; weight)</td>'
+                    '</tr>'
+                    '<tr style="border-top:1px solid #e5e7eb;">'
+                    '<td style="padding:6px 10px; font-weight:600; color:#374151;">Distance needed?</td>'
+                    '<td style="padding:6px 10px; color:#374151;">No — angles fully define the solid angle</td>'
+                    '<td style="padding:6px 10px; color:#374151;">Yes — sets both solid angle and ray geometry</td>'
+                    '<td style="padding:6px 10px; color:#374151;">Yes — same as Panpan</td>'
+                    '</tr>'
+                    '</tbody></table>'
+                )
+
+                # ── Callout ────────────────────────────────────────────────
+                ui.html(
+                    '<div style="background:#fffbeb; border:1px solid #fcd34d; border-radius:8px; '
+                    'padding:10px 14px; font-size:0.87rem; color:#78350f; line-height:1.65; margin-top:4px;">'
+                    '<strong>Practical guidance:</strong> &nbsp;'
+                    'For BNL, estimate <code>det_alfa</code> and <code>det_theta</code> from the '
+                    'physical detector dimensions: '
+                    '<code>alfa ≈ 2 &times; arctan(width / (2 &times; dist))</code>. '
+                    'The default 20.6° corresponds to typical BNL SRX beamline geometry. '
+                    'For Panpan/Wendy, measure <code>det_from_sample_cm</code> and '
+                    '<code>det_dia_cm</code> directly from the beamline setup. '
+                    'If in doubt, the P-matrix filename encodes all geometry parameters — '
+                    'a mismatch means recomputation, which takes tens of minutes.'
+                    '</div>'
+                )
+
+        # ════════════════════════════════════════════════════════════════════
+        # Section 5 — Variable Reference
+        # ════════════════════════════════════════════════════════════════════
+        _section_header("5", "Variable Reference — Three-Way Notation Comparison", "table_chart", "#475569")
 
         with ui.card().classes("w-full"):
             with ui.column().classes("p-2"):
                 ui.html(_VARIABLE_TABLE)
 
         # ════════════════════════════════════════════════════════════════════
-        # Section 5 — Output File Structure
+        # Section 6 — Output File Structure
         # ════════════════════════════════════════════════════════════════════
-        _section_header("5", "Output File Structure", "folder_open", "#0369a1")
+        _section_header("6", "Output File Structure", "folder_open", "#0369a1")
 
         with ui.card().classes("w-full"):
             with ui.column().classes("p-3 gap-4"):
