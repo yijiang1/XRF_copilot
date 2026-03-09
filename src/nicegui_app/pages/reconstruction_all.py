@@ -36,6 +36,7 @@ from ..components.di_control_panel import _collect_di_params
 from ..components.status_log import create_status_log
 from ..components.session_bar import create_session_bar
 from ..components.result_viewer import create_result_viewer
+from ..components.detector_diagram import create_detector_diagram
 from ..utils.message_formatter import append_to_message_list
 
 # Colour legend for the periodic-table element selector
@@ -230,8 +231,10 @@ def create_reconstruction_all_page(api_key: str = ""):
                 # create_h5_inspector so that the Load button sits above them.
                 _pixel_size_ref  = [None]
                 _energy_ref      = [None]
+                _data_shape      = {"nx": 0, "ny": 0}    # filled on HDF5 load
+                _det_diagram_refs = []  # list of (update_fn, inputs_dict) for diagrams
 
-                def on_elements_loaded(names: list) -> None:
+                def on_elements_loaded(names: list, shape=None) -> None:
                     ctr = _elem_ui["container"]
                     st  = _elem_ui["status"]
                     if ctr is None:
@@ -249,6 +252,32 @@ def create_reconstruction_all_page(api_key: str = ""):
                             "toggle tiles to select elements for reconstruction:"
                         )
                         st.classes(remove="text-gray-400 italic", add="text-gray-600")
+                    # Store data shape and refresh detector diagrams
+                    if shape is not None and len(shape) >= 4:
+                        _data_shape["ny"] = shape[2]
+                        _data_shape["nx"] = shape[3]
+                        _refresh_all_diagrams()
+
+                def _compute_sample_size_cm():
+                    """Compute physical sample width in cm from pixel_size_nm × nx."""
+                    pix = (_pixel_size_ref[0].value
+                           if _pixel_size_ref[0] is not None else None)
+                    nx = _data_shape.get("nx", 0)
+                    if pix and nx:
+                        return nx * pix * 1e-7  # nm → cm
+                    return 0.0
+
+                def _refresh_all_diagrams():
+                    """Refresh every registered detector diagram."""
+                    scm = _compute_sample_size_cm()
+                    for upd_fn, inp in _det_diagram_refs:
+                        upd_fn(
+                            det_dia_cm=inp["det_dia_cm"].value or 0.9,
+                            det_from_sample_cm=inp["det_from_sample_cm"].value or 1.6,
+                            det_ds_spacing_cm=inp["det_ds_spacing_cm"].value or 0.4,
+                            det_on_which_side=inp["det_on_which_side"].value or "positive",
+                            sample_size_cm=scm,
+                        )
 
                 _h5_load_file = create_h5_inspector(
                     _ValueHolder(""),
@@ -543,47 +572,70 @@ def create_reconstruction_all_page(api_key: str = ""):
                     ui.label("Detector Geometry").classes(
                         "text-sm font-semibold text-gray-700"
                     )
-                    with ui.row().classes("w-full gap-8"):
-                        el = ui.switch("Manual Detector Coordinates", value=False)
-                        el.tooltip("Use manually specified detector coordinates")
-                        recon_inputs["manual_det_coord"] = el
-                        recon_valid.append("manual_det_coord")
+                    with ui.row().classes("w-full gap-4 items-start"):
+                        with ui.column().classes("flex-1 gap-2"):
+                            with ui.row().classes("w-full gap-8"):
+                                el = ui.switch("Manual Detector Coordinates", value=False)
+                                el.tooltip("Use manually specified detector coordinates")
+                                recon_inputs["manual_det_coord"] = el
+                                recon_valid.append("manual_det_coord")
 
-                        el = ui.switch("Manual Detector Area", value=False)
-                        el.tooltip("Use manually specified detector area")
-                        recon_inputs["manual_det_area"] = el
-                        recon_valid.append("manual_det_area")
+                                el = ui.switch("Manual Detector Area", value=False)
+                                el.tooltip("Use manually specified detector area")
+                                recon_inputs["manual_det_area"] = el
+                                recon_valid.append("manual_det_area")
 
-                    with ui.row().classes("w-full gap-4"):
-                        el = ui.number(
-                            "Detector Diameter (cm)", value=0.9, step=0.1, min=0.01
-                        ).classes("flex-1")
-                        el.tooltip("Fluorescence detector diameter in cm")
-                        recon_inputs["det_dia_cm"] = el
-                        recon_valid.append("det_dia_cm")
+                            with ui.row().classes("w-full gap-4"):
+                                el = ui.number(
+                                    "Detector Diameter (cm)", value=0.9, step=0.1, min=0.01
+                                ).classes("flex-1")
+                                el.tooltip("Fluorescence detector diameter in cm")
+                                recon_inputs["det_dia_cm"] = el
+                                recon_valid.append("det_dia_cm")
 
-                        el = ui.number(
-                            "Sample-Det Distance (cm)", value=1.6, step=0.1, min=0.01
-                        ).classes("flex-1")
-                        el.tooltip("Distance from sample to detector in cm")
-                        recon_inputs["det_from_sample_cm"] = el
-                        recon_valid.append("det_from_sample_cm")
+                                el = ui.number(
+                                    "Sample-Det Distance (cm)", value=1.6, step=0.1, min=0.01
+                                ).classes("flex-1")
+                                el.tooltip("Distance from sample to detector in cm")
+                                recon_inputs["det_from_sample_cm"] = el
+                                recon_valid.append("det_from_sample_cm")
 
-                        el = ui.number(
-                            "Det Pixel Spacing (cm)", value=0.4, step=0.05, min=0.01
-                        ).classes("flex-1")
-                        el.tooltip("Spacing between detector pixels in cm")
-                        recon_inputs["det_ds_spacing_cm"] = el
-                        recon_valid.append("det_ds_spacing_cm")
+                                el = ui.number(
+                                    "Det Pixel Spacing (cm)", value=0.4, step=0.05, min=0.01
+                                ).classes("flex-1")
+                                el.tooltip("Spacing between detector pixels in cm")
+                                recon_inputs["det_ds_spacing_cm"] = el
+                                recon_valid.append("det_ds_spacing_cm")
 
-                    el = ui.select(
-                        label="Detector Side",
-                        options=["positive", "negative"],
-                        value="positive",
-                    ).classes("w-full")
-                    el.tooltip("Which side of the sample the detector is on")
-                    recon_inputs["det_on_which_side"] = el
-                    recon_valid.append("det_on_which_side")
+                            el = ui.select(
+                                label="Detector Side",
+                                options=["positive", "negative"],
+                                value="positive",
+                            ).classes("w-full")
+                            el.tooltip("Which side of the sample the detector is on")
+                            recon_inputs["det_on_which_side"] = el
+                            recon_valid.append("det_on_which_side")
+
+                        # 3D interactive diagram
+                        with ui.column().classes("gap-0"):
+                            recon_det_update = create_detector_diagram()
+
+                    # Wire live diagram updates
+                    _det_diagram_refs.append((recon_det_update, recon_inputs))
+
+                    def _recon_det_refresh(_=None):
+                        recon_det_update(
+                            det_dia_cm=recon_inputs["det_dia_cm"].value or 0.9,
+                            det_from_sample_cm=recon_inputs["det_from_sample_cm"].value or 1.6,
+                            det_ds_spacing_cm=recon_inputs["det_ds_spacing_cm"].value or 0.4,
+                            det_on_which_side=recon_inputs["det_on_which_side"].value or "positive",
+                            sample_size_cm=_compute_sample_size_cm(),
+                        )
+
+                    recon_inputs["det_dia_cm"].on_value_change(_recon_det_refresh)
+                    recon_inputs["det_from_sample_cm"].on_value_change(_recon_det_refresh)
+                    recon_inputs["det_ds_spacing_cm"].on_value_change(_recon_det_refresh)
+                    recon_inputs["det_on_which_side"].on_value_change(_recon_det_refresh)
 
                     ui.separator().classes("my-1")
 
@@ -730,47 +782,70 @@ def create_reconstruction_all_page(api_key: str = ""):
                     ui.label("Detector Geometry").classes(
                         "text-sm font-semibold text-gray-700"
                     )
-                    with ui.row().classes("w-full gap-8"):
-                        el = ui.switch("Manual Detector Coordinates", value=False)
-                        el.tooltip("Use manually specified detector coordinates")
-                        di_inputs["manual_det_coord"] = el
-                        di_valid.append("manual_det_coord")
+                    with ui.row().classes("w-full gap-4 items-start"):
+                        with ui.column().classes("flex-1 gap-2"):
+                            with ui.row().classes("w-full gap-8"):
+                                el = ui.switch("Manual Detector Coordinates", value=False)
+                                el.tooltip("Use manually specified detector coordinates")
+                                di_inputs["manual_det_coord"] = el
+                                di_valid.append("manual_det_coord")
 
-                        el = ui.switch("Manual Detector Area", value=False)
-                        el.tooltip("Use manually specified detector area")
-                        di_inputs["manual_det_area"] = el
-                        di_valid.append("manual_det_area")
+                                el = ui.switch("Manual Detector Area", value=False)
+                                el.tooltip("Use manually specified detector area")
+                                di_inputs["manual_det_area"] = el
+                                di_valid.append("manual_det_area")
 
-                    with ui.row().classes("w-full gap-4"):
-                        el = ui.number(
-                            "Detector Diameter (cm)", value=0.9, step=0.1, min=0.01
-                        ).classes("flex-1")
-                        el.tooltip("Fluorescence detector diameter in cm")
-                        di_inputs["det_dia_cm"] = el
-                        di_valid.append("det_dia_cm")
+                            with ui.row().classes("w-full gap-4"):
+                                el = ui.number(
+                                    "Detector Diameter (cm)", value=0.9, step=0.1, min=0.01
+                                ).classes("flex-1")
+                                el.tooltip("Fluorescence detector diameter in cm")
+                                di_inputs["det_dia_cm"] = el
+                                di_valid.append("det_dia_cm")
 
-                        el = ui.number(
-                            "Sample-Det Distance (cm)", value=1.6, step=0.1, min=0.01
-                        ).classes("flex-1")
-                        el.tooltip("Distance from sample to detector in cm")
-                        di_inputs["det_from_sample_cm"] = el
-                        di_valid.append("det_from_sample_cm")
+                                el = ui.number(
+                                    "Sample-Det Distance (cm)", value=1.6, step=0.1, min=0.01
+                                ).classes("flex-1")
+                                el.tooltip("Distance from sample to detector in cm")
+                                di_inputs["det_from_sample_cm"] = el
+                                di_valid.append("det_from_sample_cm")
 
-                        el = ui.number(
-                            "Det Pixel Spacing (cm)", value=0.4, step=0.05, min=0.01
-                        ).classes("flex-1")
-                        el.tooltip("Spacing between detector pixels in cm")
-                        di_inputs["det_ds_spacing_cm"] = el
-                        di_valid.append("det_ds_spacing_cm")
+                                el = ui.number(
+                                    "Det Pixel Spacing (cm)", value=0.4, step=0.05, min=0.01
+                                ).classes("flex-1")
+                                el.tooltip("Spacing between detector pixels in cm")
+                                di_inputs["det_ds_spacing_cm"] = el
+                                di_valid.append("det_ds_spacing_cm")
 
-                    el = ui.select(
-                        label="Detector Side",
-                        options=["positive", "negative"],
-                        value="positive",
-                    ).classes("w-full")
-                    el.tooltip("Which side of the sample the detector is on")
-                    di_inputs["det_on_which_side"] = el
-                    di_valid.append("det_on_which_side")
+                            el = ui.select(
+                                label="Detector Side",
+                                options=["positive", "negative"],
+                                value="positive",
+                            ).classes("w-full")
+                            el.tooltip("Which side of the sample the detector is on")
+                            di_inputs["det_on_which_side"] = el
+                            di_valid.append("det_on_which_side")
+
+                        # 3D interactive diagram
+                        with ui.column().classes("gap-0"):
+                            di_det_update = create_detector_diagram()
+
+                    # Wire live diagram updates
+                    _det_diagram_refs.append((di_det_update, di_inputs))
+
+                    def _di_det_refresh(_=None):
+                        di_det_update(
+                            det_dia_cm=di_inputs["det_dia_cm"].value or 0.9,
+                            det_from_sample_cm=di_inputs["det_from_sample_cm"].value or 1.6,
+                            det_ds_spacing_cm=di_inputs["det_ds_spacing_cm"].value or 0.4,
+                            det_on_which_side=di_inputs["det_on_which_side"].value or "positive",
+                            sample_size_cm=_compute_sample_size_cm(),
+                        )
+
+                    di_inputs["det_dia_cm"].on_value_change(_di_det_refresh)
+                    di_inputs["det_from_sample_cm"].on_value_change(_di_det_refresh)
+                    di_inputs["det_ds_spacing_cm"].on_value_change(_di_det_refresh)
+                    di_inputs["det_on_which_side"].on_value_change(_di_det_refresh)
 
                     ui.separator().classes("my-1")
 

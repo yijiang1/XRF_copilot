@@ -723,16 +723,18 @@ def create_h5_inspector(
             meta.update(result)
             meta["loaded"] = True
 
-            # Notify external listeners (e.g. parameter form element selector).
-            # Pass the same list used by the channel dropdown for consistency.
-            if on_elements_loaded is not None:
-                on_elements_loaded(result["elements"])
-
             # Auto-populate pixel size and beam energy if stored in the HDF5 file.
+            # Must happen BEFORE on_elements_loaded so downstream code can read
+            # the pixel size (e.g. to compute physical sample dimensions).
             if pixel_size_nm_ref is not None and pixel_size_nm_ref[0] is not None:
                 pixel_size_nm_ref[0].set_value(result.get("pixel_size_nm"))
             if probe_energy_ref is not None and probe_energy_ref[0] is not None:
                 probe_energy_ref[0].set_value(result.get("probe_energy_keV"))
+
+            # Notify external listeners (e.g. parameter form element selector).
+            # Pass the same list used by the channel dropdown for consistency.
+            if on_elements_loaded is not None:
+                on_elements_loaded(result["elements"], result["shape"])
 
             n_ch, n_ang, ny, nx = result["shape"]
             ch_select.options = result["elements"]
