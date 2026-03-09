@@ -112,9 +112,9 @@ def create_reconstruction_all_page(api_key: str = ""):
     init_host, init_port = _parse_endpoint(api.endpoint)
 
     # ── Per-method error / log-offset tracking ─────────────────────────────────
-    fl_err    = {"reported": False, "log_offset": 0}
-    recon_err = {"reported": False, "log_offset": 0}
-    di_err    = {"reported": False, "log_offset": 0}
+    fl_err    = {"reported": False, "log_offset": 0, "was_running": False}
+    recon_err = {"reported": False, "log_offset": 0, "was_running": False}
+    di_err    = {"reported": False, "log_offset": 0, "was_running": False}
 
     with ui.column().classes("w-full px-4 gap-4"):
 
@@ -184,7 +184,7 @@ def create_reconstruction_all_page(api_key: str = ""):
                 with ui.row().classes("w-full gap-4 items-end"):
                     h5_path_el = ui.input(
                         "HDF5 Data File (full path)",
-                        value="/mnt/micdata3/XRF_tomography/testing_ground/data/fl_correction/bnl_test.h5",
+                        value="/mnt/micdata3/XRF_tomography/testing_ground/data/",
                         placeholder="/path/to/data.h5",
                     ).classes("flex-1 font-mono")
                     h5_path_el.tooltip(
@@ -1077,10 +1077,16 @@ def create_reconstruction_all_page(api_key: str = ""):
                 gpu_rows_container = ui.column().classes("w-full gap-0")
 
             async def _refresh_gpu_status(show_spinner=False):
-                gpu_rows_container.clear()
+                if show_spinner:
+                    gpu_rows_container.clear()
+                    with gpu_rows_container:
+                        with ui.row().classes("items-center gap-2 py-1"):
+                            ui.spinner(size="sm")
+                            ui.label("Fetching GPU status...").classes("text-sm text-gray-500")
                 try:
                     data = await api.gpu_status()
                     gpus = data.get("gpus", [])
+                    gpu_rows_container.clear()
                     if not gpus:
                         with gpu_rows_container:
                             ui.label(data.get("error", "No GPUs found")).classes("text-xs text-red-500")
@@ -1126,6 +1132,7 @@ def create_reconstruction_all_page(api_key: str = ""):
                                 if gpu_error:
                                     ui.icon("warning", color="negative", size="xs").tooltip(gpu_error)
                 except Exception as exc:
+                    gpu_rows_container.clear()
                     with gpu_rows_container:
                         ui.label(f"Error: {exc}").classes("text-xs text-red-500")
 
@@ -1586,7 +1593,10 @@ def create_reconstruction_all_page(api_key: str = ""):
             except Exception:
                 pass
 
-            if fl_state.is_running:
+            # Fetch logs while running, plus one final drain when just finished
+            _fl_just_finished = fl_err["was_running"] and not fl_state.is_running
+            fl_err["was_running"] = fl_state.is_running
+            if fl_state.is_running or _fl_just_finished:
                 try:
                     worker_data = await api.get_fl_worker_status()
                     logs = worker_data.get("worker_logs", [])
@@ -1673,7 +1683,10 @@ def create_reconstruction_all_page(api_key: str = ""):
             except Exception:
                 pass
 
-            if recon_state.is_running:
+            # Fetch logs while running, plus one final drain when just finished
+            _recon_just_finished = recon_err["was_running"] and not recon_state.is_running
+            recon_err["was_running"] = recon_state.is_running
+            if recon_state.is_running or _recon_just_finished:
                 try:
                     worker_data = await api.get_recon_worker_status()
                     logs = worker_data.get("worker_logs", [])
@@ -1733,7 +1746,10 @@ def create_reconstruction_all_page(api_key: str = ""):
             except Exception:
                 pass
 
-            if di_state.is_running:
+            # Fetch logs while running, plus one final drain when just finished
+            _di_just_finished = di_err["was_running"] and not di_state.is_running
+            di_err["was_running"] = di_state.is_running
+            if di_state.is_running or _di_just_finished:
                 try:
                     worker_data = await api.get_di_recon_worker_status()
                     logs = worker_data.get("logs", [])

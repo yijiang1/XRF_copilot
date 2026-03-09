@@ -12,29 +12,42 @@ import base64
 
 import h5py
 import numpy as np
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+from PIL import Image
 from fastapi import APIRouter
 
 router = APIRouter()
+
+# Cache global min/max per (filepath, elem_idx, mtime) so it's only
+# recomputed when the file changes, not on every slice request.
+_global_range_cache: dict[tuple, tuple[float, float]] = {}
+
+
+def _get_global_range(f, filepath: str, elem_idx: int) -> tuple[float, float]:
+    """Return (global_min, global_max) for the full 3D volume of one element."""
+    mtime = os.path.getmtime(filepath)
+    key = (filepath, elem_idx, mtime)
+    if key in _global_range_cache:
+        return _global_range_cache[key]
+    vol = f["densities"][elem_idx]
+    gmin, gmax = float(np.min(vol)), float(np.max(vol))
+    _global_range_cache[key] = (gmin, gmax)
+    return gmin, gmax
 
 
 def _read_recon_slice(filepath: str, elem_idx: int, slice_idx: int) -> dict:
     """Read one 2D slice from a reconstruction HDF5 and render as base64 PNG."""
     with h5py.File(filepath, "r", locking=False) as f:
         arr = np.array(f["densities"][elem_idx, slice_idx, :, :])
+        gmin, gmax = _get_global_range(f, filepath, elem_idx)
 
     vmin, vmax, vmean = float(arr.min()), float(arr.max()), float(arr.mean())
     ny, nx = arr.shape
 
-    p2 = float(np.nanpercentile(arr, 2))
-    p98 = float(np.nanpercentile(arr, 98))
-    if p98 <= p2:
-        p98 = p2 + 1.0
-
+    drange = gmax - gmin if gmax > gmin else 1.0
+    arr_norm = np.clip((arr - gmin) / drange, 0, 1)
+    arr_uint8 = (arr_norm * 255).astype(np.uint8)
     buf = io.BytesIO()
-    plt.imsave(buf, arr, cmap="gray", vmin=p2, vmax=p98, format="png")
+    Image.fromarray(arr_uint8, mode="L").save(buf, format="PNG")
     data_url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
     return {

@@ -76,7 +76,8 @@ def create_result_viewer() -> tuple[ui.element, callable]:
         "elem_idx": 0,
         "slice_idx": 0,
     }
-    pending = {"task": None}
+    _seq = {"n": 0}  # sequence counter for debounce
+    _play = {"active": False, "btn": None}  # auto-play state
 
     ui.add_head_html(_ZOOM_JS)
 
@@ -208,15 +209,22 @@ def create_result_viewer() -> tuple[ui.element, callable]:
             pass
 
     async def _debounced_fetch(api, session_id):
-        """Debounced slice fetch (100ms delay for slider drag)."""
-        if pending["task"] and not pending["task"].done():
-            pending["task"].cancel()
+        """Debounced slice fetch (200ms delay for slider drag).
 
-        async def _deferred():
-            await asyncio.sleep(0.10)
+        Uses sequence-counter pattern: if a newer event arrives during the
+        sleep, the stale coroutine simply returns without fetching.
+        """
+        seq = _seq["n"] = _seq["n"] + 1
+        await asyncio.sleep(0.20)
+        if _seq["n"] == seq:
             await _fetch_slice(api, session_id)
 
-        pending["task"] = asyncio.ensure_future(_deferred())
+    def _stop_playback():
+        """Stop auto-play if active and reset button icon."""
+        if _play["active"]:
+            _play["active"] = False
+            if _play["btn"]:
+                _play["btn"].props("icon=play_arrow flat dense round size=sm")
 
     # Store api ref for callbacks
     _api_ref = {"api": None, "sid": ""}
@@ -278,11 +286,16 @@ def create_result_viewer() -> tuple[ui.element, callable]:
             slice_label.set_text(f"Slice: {state['slice_idx']} / {n_slices - 1}")
 
             # Rebuild slider
+            _stop_playback()
             slider_container.clear()
             with slider_container:
+                _from_button = {"skip": False}
+
                 async def _on_prev():
+                    _stop_playback()
                     if state["slice_idx"] > 0:
                         state["slice_idx"] -= 1
+                        _from_button["skip"] = True
                         sl_ref[0].set_value(state["slice_idx"])
                         slice_label.set_text(
                             f"Slice: {state['slice_idx']} / {state['n_slices'] - 1}"
@@ -291,14 +304,42 @@ def create_result_viewer() -> tuple[ui.element, callable]:
                             await _fetch_slice(_api_ref["api"], _api_ref["sid"])
 
                 async def _on_next():
+                    _stop_playback()
                     if state["slice_idx"] < state["n_slices"] - 1:
                         state["slice_idx"] += 1
+                        _from_button["skip"] = True
                         sl_ref[0].set_value(state["slice_idx"])
                         slice_label.set_text(
                             f"Slice: {state['slice_idx']} / {state['n_slices'] - 1}"
                         )
                         if _api_ref["api"]:
                             await _fetch_slice(_api_ref["api"], _api_ref["sid"])
+
+                async def _toggle_play():
+                    if _play["active"]:
+                        _stop_playback()
+                        return
+                    _play["active"] = True
+                    _play["btn"].props("icon=pause flat dense round size=sm")
+                    while _play["active"] and _api_ref["api"]:
+                        # Advance to next slice (loop back at end)
+                        if state["slice_idx"] >= state["n_slices"] - 1:
+                            state["slice_idx"] = 0
+                        else:
+                            state["slice_idx"] += 1
+                        _from_button["skip"] = True
+                        sl_ref[0].set_value(state["slice_idx"])
+                        slice_label.set_text(
+                            f"Slice: {state['slice_idx']} / {state['n_slices'] - 1}"
+                        )
+                        await _fetch_slice(_api_ref["api"], _api_ref["sid"])
+                        await asyncio.sleep(0.30)
+                    _stop_playback()
+
+                play_btn = ui.button(icon="play_arrow", on_click=_toggle_play).props(
+                    "flat dense round size=sm"
+                )
+                _play["btn"] = play_btn
 
                 ui.button(icon="chevron_left", on_click=_on_prev).props(
                     "flat dense round size=sm"
@@ -309,6 +350,10 @@ def create_result_viewer() -> tuple[ui.element, callable]:
                     slice_label.set_text(
                         f"Slice: {state['slice_idx']} / {state['n_slices'] - 1}"
                     )
+                    if _from_button["skip"]:
+                        _from_button["skip"] = False
+                        return
+                    _stop_playback()
                     if _api_ref["api"]:
                         await _debounced_fetch(_api_ref["api"], _api_ref["sid"])
 

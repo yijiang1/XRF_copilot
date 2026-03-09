@@ -13,7 +13,7 @@ import asyncio
 import base64
 import h5py
 import numpy as np
-import matplotlib.pyplot as plt
+from PIL import Image
 from nicegui import ui, run
 
 
@@ -507,13 +507,11 @@ def _read_slice(filepath: str, ch_idx: int, ang_idx: int, data_key: str = "data"
     vmin, vmax, vmean = float(arr.min()), float(arr.max()), float(arr.mean())
     ny, nx = arr.shape
 
-    # Viridis PNG via plt.imsave — no Plotly, no extra deps
-    p2  = float(np.nanpercentile(arr, 2))
-    p98 = float(np.nanpercentile(arr, 98))
-    if p98 <= p2:
-        p98 = p2 + 1.0
+    drange = vmax - vmin if vmax > vmin else 1.0
+    arr_norm = np.clip((arr - vmin) / drange, 0, 1)
+    arr_uint8 = (arr_norm * 255).astype(np.uint8)
     buf = io.BytesIO()
-    plt.imsave(buf, arr, cmap="gray", vmin=p2, vmax=p98, format="png")
+    Image.fromarray(arr_uint8, mode="L").save(buf, format="PNG")
     data_url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
     return data_url, vmin, vmax, vmean, ny, nx
 
@@ -571,6 +569,7 @@ def create_h5_inspector(
     sel        = {"ch_idx": 0, "ang_idx": 0, "n_ang": 1}
     slider_ref   = {"el": None}
     last_change  = {"seq": 0}    # debounce sequence counter
+    _play        = {"active": False, "btn": None}  # auto-play state
     zoom_id      = {"cid": None}   # JS container id string set after DOM build
 
     # Helper: read cid without backslash inside f-string (pre-3.12 compat)
@@ -595,6 +594,8 @@ def create_h5_inspector(
     controls = ui.row().classes("w-full items-center gap-4 flex-wrap")
     with controls:
         ch_select        = ui.select(label="Channel", options=[], value=None).classes("w-56").props("dense outlined")
+        play_btn         = ui.button(icon="play_arrow").props("dense flat")
+        _play["btn"]     = play_btn
         prev_btn         = ui.button(icon="chevron_left").props("dense flat")
         slider_container = ui.row().classes("flex-1 items-center")
         next_btn         = ui.button(icon="chevron_right").props("dense flat")
@@ -791,6 +792,35 @@ def create_h5_inspector(
             sel["ch_idx"] = 0
         await _show_slice()
 
+    # ── Auto-play helpers ──────────────────────────────────────────
+    def _stop_playback():
+        """Stop auto-play if active and reset button icon."""
+        if _play["active"]:
+            _play["active"] = False
+            if _play["btn"]:
+                _play["btn"].props("icon=play_arrow dense flat")
+
+    async def _toggle_play(_):
+        if not meta["loaded"]:
+            return
+        if _play["active"]:
+            _stop_playback()
+            return
+        _play["active"] = True
+        _play["btn"].props("icon=pause dense flat")
+        while _play["active"] and meta["loaded"]:
+            # Advance to next angle (loop back at end)
+            if sel["ang_idx"] >= sel["n_ang"] - 1:
+                sel["ang_idx"] = 0
+            else:
+                sel["ang_idx"] += 1
+            if slider_ref["el"] is not None:
+                slider_ref["el"].set_value(sel["ang_idx"])
+            angle_lbl.set_text(_angle_text(sel["ang_idx"]))
+            await _show_slice()
+            await asyncio.sleep(0.30)
+        _stop_playback()
+
     # ── Angle slider — debounced to avoid concurrent IO ─────────────
     async def on_angle_change(e):
         if not meta["loaded"]:
@@ -802,8 +832,13 @@ def create_h5_inspector(
         sel["ang_idx"] = idx
         angle_lbl.set_text(_angle_text(idx))
 
+        # Don't debounce-fetch if playback is driving the slider
+        if _play["active"]:
+            return
+
         # Debounce: stay in the same coroutine (preserves NiceGUI client context).
         # Each event increments the sequence; only the last one actually loads.
+        _stop_playback()
         seq = last_change["seq"] + 1
         last_change["seq"] = seq
         await asyncio.sleep(0.25)
@@ -814,6 +849,7 @@ def create_h5_inspector(
     async def go_to_angle(idx: int):
         if not meta["loaded"]:
             return
+        _stop_playback()
         idx = max(0, min(idx, sel["n_ang"] - 1))
         sel["ang_idx"] = idx
         if slider_ref["el"] is not None:
@@ -871,6 +907,7 @@ def create_h5_inspector(
     load_btn.on_click(on_load_file)
     ch_select.on_value_change(on_channel_change)
     prev_btn.on_click(on_prev)
+    play_btn.on_click(_toggle_play)
     next_btn.on_click(on_next)
     ruler_sw.on_value_change(on_ruler_change)
     if crop_sw is not None:
